@@ -1,0 +1,19 @@
+[package]
+name = "yob-worker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "worker"
+path = "src/main.rs"
+
+[dependencies]
+yob-core.workspace = true
+yob-db.workspace = true
+
+anyhow.workspace = true
+deadpool-redis.workspace = true
+tokio.workspace = true
+tracing.workspace = true

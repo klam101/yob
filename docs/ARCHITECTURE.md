@@ -165,7 +165,7 @@ yob/
     crates/worker/   scheduled and queued jobs (binary)
     crates/core/     modules: jobs, profile, matching, documents, applications, auth
     crates/db/       SQLx queries and migrations
-  web/               Next.js app
+  frontend/          Next.js app
   extension/         Chrome extension
   docs/              this file
   docker-compose.yml
@@ -198,7 +198,7 @@ Deployment is how the app is packaged and started; hosting is where it runs. For
 
 | Service | Image or build | Port |
 | --- | --- | --- |
-| `web` | Next.js app | 3000 |
+| `frontend` | Next.js app | 3000 |
 | `api` | Rust API binary | 8080 |
 | `worker` | Rust worker binary | none |
 | `db` | `pgvector/pgvector` | 5432 |
