@@ -22,8 +22,6 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] App shell: nav rail (top bar on phones), theme toggle, API status
 - [x] Jobs feed: search bar, filter chips, All filters panel with live count, sort, pagination, empty and error states
 - [x] Job detail page: match card, requirements, keyword gap, description, company tab, people-search links
-- [x] Commit the frontend work (`dd6c992`)
-- [ ] Merge the frontend PR (`feature/frontend-foundation`)
 
 ## To do
 
