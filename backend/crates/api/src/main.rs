@@ -20,7 +20,8 @@ async fn main() -> anyhow::Result<()> {
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
         .context("creating Redis pool")?;
 
-    let app = routes::router(state::AppState { db, redis }, &config)?;
+    let fetcher = yob_core::jobs::Fetcher::new(redis.clone())?;
+    let app = routes::router(state::AppState { db, redis, fetcher }, &config)?;
 
     let listener = tokio::net::TcpListener::bind(&config.api_addr)
         .await

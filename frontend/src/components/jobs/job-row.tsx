@@ -1,4 +1,4 @@
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 import Link from "next/link";
 import type { JobSummary, Match } from "@/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,7 +36,12 @@ export function JobRow({ job }: { job: JobSummary }) {
             </h2>
             <p className="truncate text-sm">
               <span className="font-medium">{job.company.name}</span>
-              <span className="text-muted-foreground"> · {job.company.industries.join(" · ")}</span>
+              {(job.company.industries.length > 0 || job.department) && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {job.company.industries.length > 0 ? job.company.industries.join(" · ") : job.department}
+                </span>
+              )}
             </p>
           </div>
           {job.match && <CompactMatch match={job.match} />}
@@ -51,7 +56,8 @@ export function JobRow({ job }: { job: JobSummary }) {
         </div>
       </div>
 
-      {job.match ? <MatchPanel match={job.match} /> : <NoMatchPanel />}
+      {/* Unscored jobs (no resume yet) use the full width instead of an empty panel. */}
+      {job.match && <MatchPanel match={job.match} />}
     </article>
   );
 }
@@ -70,15 +76,6 @@ function MatchPanel({ match }: { match: Match }) {
           </li>
         ))}
       </ul>
-    </aside>
-  );
-}
-
-function NoMatchPanel() {
-  return (
-    <aside className="hidden w-52 shrink-0 flex-col items-center justify-center gap-2 border-l border-border/60 px-4 text-center md:flex">
-      <Sparkles className="size-5 text-muted-foreground" />
-      <p className="text-xs text-muted-foreground">Not scored yet</p>
     </aside>
   );
 }

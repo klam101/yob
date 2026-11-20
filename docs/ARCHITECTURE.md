@@ -75,28 +75,33 @@ Jobs come straight from the hiring systems companies use for their career pages,
 
 | Order | Platform | How we read it |
 | --- | --- | --- |
-| 1 | Greenhouse | Official public job board API, one feed per company |
-| 1 | Lever | Official public postings API |
-| 1 | Ashby | Official public job board API |
+| 1 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs` (light id list); `?content=true` adds descriptions (HTML-escaped) for all jobs in one request. No workplace or employment type, so those are inferred. |
+| 1 | Lever | `api.lever.co/v0/postings/{company}?mode=json`, everything in one request. Rate-limits quickly. |
+| 1 | Ashby | `api.ashbyhq.com/posting-api/job-board/{name}?includeCompensation=true`, everything in one request, with structured pay |
 | 2 | Workday | The JSON the company's careers page loads (unofficial) |
 | 2 | Eightfold | The JSON the careers page loads (Microsoft, Starbucks, Qualcomm, PayPal are listed as customers) |
 | 3 | iCIMS, SuccessFactors, Oracle, SmartRecruiters | Confirmed one at a time |
 | never | LinkedIn, Indeed, hiringcafe | Terms forbid scraping |
 
-Endpoints are from memory and get confirmed when each adapter is built.
+Greenhouse, Lever and Ashby endpoints were confirmed in November 2026; the rest are still from memory and get confirmed when each adapter is built. Code: `backend/crates/core/src/jobs/` (`sources/` per platform, `normalize.rs`, `ingest.rs`, `store.rs`).
 
-**Finding companies.** Start from public lists of companies on Greenhouse, Lever and Ashby plus search results for their board URLs; grow whenever you save or paste a job from an unknown company. Preferences filter at search time, so the list can be broad.
+**Postgres is the job database; pages never call job boards.** The worker keeps a stored copy fresh in the background, and the feed and detail pages only query Postgres. They stay fast and keep working with the worker stopped or offline. Data survives restarts in the `pgdata` volume. Around 23,000 open jobs take about 230 MB.
+
+**Finding companies.** A verified starter list ships in `seed_companies.json` (170 companies) and is inserted on worker start. More are added from a board URL on Settings → Job sources, which checks that the board exists first. Preferences filter at search time, so the list can be broad.
 
 **How a check runs.**
 
-1. Each company has an adaptive interval: 15 minutes for companies that post often or that you've saved jobs from, 6 to 24 hours for quiet ones. Redis rate limits each host.
-2. The worker fetches the company's job id list and compares it with the last one. Only new ids get a full description download.
-3. Each job is normalized to one shape and hashed.
-4. New jobs are embedded and queued for scoring.
+1. The schedule lives in Postgres (`companies.next_check_at`), so a restart resumes it instead of refetching everything. The worker claims due companies with `FOR UPDATE SKIP LOCKED` and a 20-minute lease, so several workers never check the same company twice. (This replaces a Redis Streams queue for ingestion; Redis Streams stays planned for on-demand AI work.)
+2. The interval adapts to how often the company posts: 15 minutes if it posted in the last week, 6 hours if in the last month, otherwise daily, with ±10% jitter. Failures back off from 15 minutes up to a day. Redis holds a per-host request budget per second (Greenhouse 4, Ashby 2, Lever 1), shared by the worker and the API.
+3. For Greenhouse, the worker first fetches the light id list; when nothing is new it only marks jobs as seen. Otherwise, and always for Lever and Ashby, it downloads full postings.
+4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Every check is logged in `company_checks`.
+5. Later: new jobs are embedded and queued for scoring.
 
 **Stale and ghost jobs.**
 
-- A job missing from its company's feed is marked closed and hidden right away.
+- A job missing from its company's feed on two checks in a row is marked closed and hidden (one bad response can't close jobs). The row is kept, with `last_seen_at`, so saved jobs can show that they expired.
+- Descriptions of jobs closed more than 90 days ago are cleared daily; title, dates and hash stay for repost detection.
+- Salaries in currencies other than USD are shown but excluded from the USD salary filter and sort.
 - Every job records `first_seen_at`, not just the posted date the company claims.
 - A job matching one that closed earlier is flagged as a repost, with a count.
 - Jobs open more than 60 days, or reposted more than twice, get a "possibly stale" badge, and a filter hides them.

@@ -23,22 +23,26 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] Jobs feed: search bar, filter chips, All filters panel with live count, sort, pagination, empty and error states
 - [x] Job detail page: match card, requirements, keyword gap, description, company tab, people-search links
 
+### 1. Job feed: real data (`feature/job-ingestion`)
+- [x] Migrations: `companies`, `jobs` (full-text search, USD-comparable salary), `company_checks` history
+- [x] Normalized job shape and content hash in `core::jobs`
+- [x] Greenhouse, Lever and Ashby adapters on their official public job-board APIs
+- [x] Job descriptions cleaned to safe HTML (ammonia) before storing
+- [x] Workplace, job type, seniority and salary from feed fields, titles and description text
+- [x] 170 verified starter companies (about 23,000 open jobs); add a company from its board URL
+- [x] Worker: incremental checks, only new jobs downloaded, jobs closed after two missed checks, reposts detected, stale flag
+- [x] Adaptive schedule stored in Postgres (15 minutes, 6 hours or daily) with a per-host rate limit in Redis
+- [x] `/jobs` endpoints read the database; fixtures deleted
+- [x] Settings → Job sources page: companies, status, add by URL, check now
+- [x] Daily pruning of descriptions on jobs closed more than 90 days
+
 ## To do
 
-### 1. Job feed: real data
-- [ ] Migration: `companies` and `jobs` tables (fields from ARCHITECTURE.md) with indexes and full-text search
-- [ ] Normalized job type and content hash in `core::jobs`
-- [ ] Greenhouse adapter (confirm the public board API endpoint first)
-- [ ] Lever adapter
-- [ ] Ashby adapter
-- [ ] Clean job descriptions to safe HTML before storing
-- [ ] Derive workplace, job type and seniority from feed fields and titles; parse salary from text when the feed has none
-- [ ] Starter list of companies on each platform, plus adding a company from its board URL
-- [ ] Worker: fetch each company's job ids, download only new jobs, close missing ones, detect reposts, flag stale jobs
-- [ ] Adaptive polling (15 minutes for active companies, 6 to 24 hours for quiet ones) with a per-host rate limit in Redis
-- [ ] Job queue on Redis Streams and a `tasks` history table
-- [ ] Replace the stub `/jobs` endpoints with database queries; delete the fixtures
-- [ ] Check end to end: the feed shows fresh jobs from a few hundred companies
+### 1b. Job feed follow-ups
+- [ ] Grow the company list toward a few hundred (add more verified boards)
+- [ ] Re-normalize stored jobs when parsing rules change (seniority, salary), without refetching
+- [ ] Faster first imports: batch inserts instead of one statement per job
+- [ ] Company names for Lever and Ashby boards (their APIs don't return one)
 
 ### 2. Login and saved searches
 - [ ] Single login account (argon2 password, sessions in Redis); sign-ups stay off
@@ -87,6 +91,7 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [ ] Sponsorship likelihood from public H-1B filing data
 
 ### Housekeeping
-- [ ] Tests: Rust unit tests for filters and adapters; browser tests for the feed
+- [x] Rust tests for normalization, board URLs and adapter parsing (`cargo test`)
+- [ ] Database tests for the ingest rules (closing, reposts); browser tests for the feed
 - [ ] Review the 14 high-severity `npm audit` warnings from the Next.js starter
 - [ ] Try Ctrl+C in `./scripts/dev.sh dev` to confirm it stops everything

@@ -15,20 +15,40 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return `${Math.floor(diff / (365 * DAY))}y ago`;
 }
 
+/** "in 5m", "in 3h", "due now" for scheduled times. */
+export function timeUntil(iso: string, now = Date.now()): string {
+  const diff = new Date(iso).getTime() - now;
+  if (diff <= MINUTE) return "due now";
+  if (diff < HOUR) return `in ${Math.round(diff / MINUTE)}m`;
+  if (diff < DAY) return `in ${Math.round(diff / HOUR)}h`;
+  return `in ${Math.round(diff / DAY)}d`;
+}
+
 export function isNew(job: JobSummary, now = Date.now()): boolean {
   return now - new Date(job.posted_at).getTime() < DAY;
 }
 
-function money(n: number, period: Salary["period"]): string {
-  if (period === "hour") return `$${n}`;
-  return n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${n}`;
+/** "$120K", "£85K", "₩315M", "$42" in the salary's own currency. */
+function money(n: number, currency: string, period: Salary["period"]): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      notation: period === "hour" ? "standard" : "compact",
+      // $48.50/hr, $120K, $1.3M
+      minimumFractionDigits: period === "hour" && !Number.isInteger(n) ? 2 : 0,
+      maximumFractionDigits: period === "hour" ? 2 : n >= 1_000_000 ? 1 : 0,
+    }).format(n);
+  } catch {
+    return `${n.toLocaleString("en-US")} ${currency}`; // unknown currency code
+  }
 }
 
-/** "$120k–$150k/yr" or "$42–$48/hr". */
+/** "$120K–$150K/yr", "$42–$48/hr", "£85K–£110K/yr". */
 export function formatSalary(s: Salary): string {
+  const fmt = (n: number) => money(n, s.currency, s.period);
   const unit = s.period === "hour" ? "/hr" : "/yr";
-  const range =
-    s.min === s.max ? money(s.max, s.period) : `${money(s.min, s.period)}–${money(s.max, s.period)}`;
+  const range = s.min === s.max ? fmt(s.max) : `${fmt(s.min)}–${fmt(s.max)}`;
   return `${range}${unit}`;
 }
 
@@ -53,13 +73,14 @@ export const MATCH_TONE: Record<MatchLabel, string> = {
 };
 
 /** People-search links the user opens in their own browser. No scraping. */
-export function peopleLinks(company: string, title: string, department: string) {
+export function peopleLinks(company: string, title: string, department?: string | null) {
   const enc = encodeURIComponent;
+  const team = department ?? title;
   return [
     {
       label: `People at ${company}`,
-      hint: `${department} team on LinkedIn`,
-      href: `https://www.linkedin.com/search/results/people/?keywords=${enc(`${company} ${department}`)}`,
+      hint: department ? `${department} team on LinkedIn` : "On LinkedIn",
+      href: `https://www.linkedin.com/search/results/people/?keywords=${enc(`${company} ${team}`)}`,
     },
     {
       label: "Recruiters",

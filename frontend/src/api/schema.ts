@@ -4,6 +4,44 @@
  */
 
 export interface paths {
+    "/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every tracked company with its open-job count and check status. */
+        get: operations["list_companies"];
+        put?: never;
+        /**
+         * Starts tracking a company from its job-board URL. The board is fetched
+         *     once to make sure it exists; the worker imports its jobs within seconds.
+         */
+        post: operations["add_company"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/companies/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Asks the worker to check this company now (within about 15 seconds). */
+        post: operations["check_company"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -45,7 +83,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One job with its full description and match details. */
+        /**
+         * One job with its full description. Closed jobs are still returned, with
+         *     `closed_at` set, so saved jobs can show that they've expired.
+         */
         get: operations["get_job"];
         put?: never;
         post?: never;
@@ -59,15 +100,44 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddCompany: {
+            /** @description Display name; defaults to one derived from the board. */
+            name?: string | null;
+            /**
+             * @description A public job-board URL, e.g. https://boards.greenhouse.io/stripe,
+             *     https://jobs.lever.co/palantir or https://jobs.ashbyhq.com/ramp.
+             */
+            url: string;
+        };
         /** @description Error body returned by every endpoint on failure. */
         ApiError: {
             message: string;
         };
         Company: {
-            description: string;
-            domain: string;
+            /** @description The company's public job board. */
+            careers_url: string;
+            description?: string | null;
+            domain?: string | null;
+            /** @description Empty until company data is added. */
             industries: string[];
             name: string;
+        };
+        CompanySource: {
+            active: boolean;
+            board_token: string;
+            careers_url: string;
+            id: string;
+            /** Format: date-time */
+            last_checked_at?: string | null;
+            last_error?: string | null;
+            /** @description "ok" or "error" after the first check; absent before it. */
+            last_status?: string | null;
+            name: string;
+            /** Format: date-time */
+            next_check_at: string;
+            /** Format: int32 */
+            open_jobs: number;
+            platform: components["schemas"]["Platform"];
         };
         /** @enum {string} */
         EmploymentType: "full_time" | "part_time" | "contract" | "internship";
@@ -89,14 +159,15 @@ export interface components {
         };
         JobDetail: {
             breakdown?: components["schemas"]["MatchBreakdown"] | null;
-            /** @description Sanitized HTML of the full posting. */
+            /** @description Sanitized HTML of the full posting; empty for long-closed jobs. */
             description_html: string;
             education?: string | null;
             job: components["schemas"]["JobSummary"];
             keywords?: components["schemas"]["KeywordGap"] | null;
+            /** @description Extracted skills; empty until AI extraction exists. */
             skills: string[];
-            /** @description One-paragraph plain-language summary of the role. */
-            summary: string;
+            /** @description One-paragraph plain-language summary. Absent until AI extraction exists. */
+            summary?: string | null;
             /** @description Extra detail about the workplace arrangement, e.g. in-office days. */
             workplace_note?: string | null;
             /** Format: int32 */
@@ -104,8 +175,13 @@ export interface components {
         };
         JobSummary: {
             apply_url: string;
+            /**
+             * Format: date-time
+             * @description Set once the job disappeared from the company's board.
+             */
+            closed_at?: string | null;
             company: components["schemas"]["Company"];
-            department: string;
+            department?: string | null;
             employment_type: components["schemas"]["EmploymentType"];
             /**
              * Format: date-time
@@ -113,6 +189,11 @@ export interface components {
              */
             first_seen_at: string;
             id: string;
+            /**
+             * Format: date-time
+             * @description The last check that found the job still open.
+             */
+            last_seen_at: string;
             locations: string[];
             match?: components["schemas"]["Match"] | null;
             /** @description Open more than 60 days or reposted more than twice. */
@@ -129,7 +210,7 @@ export interface components {
             repost_count: number;
             salary?: components["schemas"]["Salary"] | null;
             seniority: components["schemas"]["Seniority"];
-            source: components["schemas"]["Source"];
+            source: components["schemas"]["Platform"];
             title: string;
             workplace: components["schemas"]["Workplace"];
         };
@@ -178,6 +259,11 @@ export interface components {
         };
         /** @enum {string} */
         MatchLabel: "strong" | "good" | "fair" | "low";
+        /**
+         * @description The hiring platform a company's job board runs on.
+         * @enum {string}
+         */
+        Platform: "greenhouse" | "lever" | "ashby";
         Salary: {
             currency: string;
             /** Format: int32 */
@@ -190,11 +276,6 @@ export interface components {
         SalaryPeriod: "year" | "hour";
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
-        /**
-         * @description The hiring platform a job was read from.
-         * @enum {string}
-         */
-        Source: "greenhouse" | "lever" | "ashby";
         /** @enum {string} */
         Workplace: "onsite" | "hybrid" | "remote";
     };
@@ -206,6 +287,114 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_companies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySource"][];
+                };
+            };
+        };
+    };
+    add_company: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCompany"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySource"];
+                };
+            };
+            /** @description Not a Greenhouse, Lever or Ashby board URL */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The board doesn't exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Already tracked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The job board couldn't be reached */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    check_company: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Company id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanySource"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -236,7 +425,7 @@ export interface operations {
     list_jobs: {
         parameters: {
             query?: {
-                /** @description Matches title, company, department and skills. */
+                /** @description Matches title, department and company. */
                 q?: string;
                 /** @description Matches any of the job's locations, e.g. "New York". */
                 location?: string;

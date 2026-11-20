@@ -67,6 +67,13 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
                 </h1>
                 <JobBadges job={job} />
                 <JobMeta job={job} className="pt-1 lg:grid-cols-2" />
+                {job.closed_at && (
+                  <p className="flex gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+                    <Info className="mt-0.5 size-4 shrink-0" />
+                    This job was removed from {job.company.name}&apos;s job board {timeAgo(job.closed_at)} and
+                    is probably no longer accepting applications.
+                  </p>
+                )}
                 {detail.workplace_note && (
                   <p className="flex gap-2 rounded-xl bg-muted/70 px-3 py-2.5 text-sm text-foreground/80">
                     <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -77,16 +84,20 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
               <MatchCard detail={detail} />
             </div>
 
-            <div className="mt-6 space-y-3 border-t border-border/60 pt-6">
-              <p className="leading-relaxed text-pretty">{detail.summary}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {job.company.industries.map((i) => (
-                  <Badge key={i} variant="flat">
-                    {i}
-                  </Badge>
-                ))}
+            {(detail.summary || job.company.industries.length > 0) && (
+              <div className="mt-6 space-y-3 border-t border-border/60 pt-6">
+                {detail.summary && <p className="leading-relaxed text-pretty">{detail.summary}</p>}
+                {job.company.industries.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {job.company.industries.map((i) => (
+                      <Badge key={i} variant="flat">
+                        {i}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </section>
 
           <Tabs defaultValue="overview" className="gap-4">
@@ -104,8 +115,14 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
               {detail.keywords && <KeywordGap matched={detail.keywords.matched} missing={detail.keywords.missing} />}
               <section className="rounded-3xl border border-border/70 bg-card p-5 shadow-soft sm:p-7">
                 <h2 className="mb-4 text-lg font-semibold">Full description</h2>
-                {/* Sanitized by the API before it's stored. */}
-                <div className="prose-job" dangerouslySetInnerHTML={{ __html: detail.description_html }} />
+                {detail.description_html ? (
+                  // Sanitized by the worker (ammonia) before it's stored.
+                  <div className="prose-job" dangerouslySetInnerHTML={{ __html: detail.description_html }} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    The description isn&apos;t kept for jobs that closed a long time ago.
+                  </p>
+                )}
               </section>
             </TabsContent>
 
@@ -176,16 +193,18 @@ function MatchCard({ detail }: { detail: JobDetail }) {
 
 function Requirements({ detail }: { detail: JobDetail }) {
   const items: { icon: LucideIcon; label: string; value: string }[] = [
-    {
+  ];
+  // Only facts we actually extracted: unknown is not "no experience required".
+  if (detail.yoe_min !== null && detail.yoe_min !== undefined) {
+    items.push({
       icon: Timer,
       label: "Experience",
-      value:
-        detail.yoe_min === null || detail.yoe_min === undefined || detail.yoe_min === 0
-          ? "No experience required"
-          : `${detail.yoe_min}+ years`,
-    },
-  ];
+      value: detail.yoe_min === 0 ? "No experience required" : `${detail.yoe_min}+ years`,
+    });
+  }
   if (detail.education) items.push({ icon: GraduationCap, label: "Education", value: detail.education });
+  const showSkills = !detail.keywords && detail.skills.length > 0;
+  if (items.length === 0 && !showSkills) return null;
 
   return (
     <section className="rounded-3xl border border-border/70 bg-card p-5 shadow-soft sm:p-7">
@@ -204,7 +223,7 @@ function Requirements({ detail }: { detail: JobDetail }) {
         ))}
       </div>
       {/* With a keyword gap below, the skills already appear there. */}
-      {!detail.keywords && detail.skills.length > 0 && (
+      {showSkills && (
         <>
           <p className="mt-5 mb-2 text-xs font-medium text-muted-foreground">Skills mentioned</p>
           <div className="flex flex-wrap gap-1.5">
@@ -258,17 +277,26 @@ function CompanyPanel({ job, related }: { job: JobSummary; related: JobSummary[]
         <CompanyLogo name={job.company.name} />
         <div>
           <h2 className="text-lg font-semibold">{job.company.name}</h2>
-          <p className="text-sm text-muted-foreground">{job.company.domain}</p>
+          <a
+            href={job.company.careers_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            Careers page <ArrowUpRight className="size-3.5" />
+          </a>
         </div>
       </div>
-      <p className="leading-relaxed">{job.company.description}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {job.company.industries.map((i) => (
-          <Badge key={i} variant="flat">
-            {i}
-          </Badge>
-        ))}
-      </div>
+      {job.company.description && <p className="leading-relaxed">{job.company.description}</p>}
+      {job.company.industries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {job.company.industries.map((i) => (
+            <Badge key={i} variant="flat">
+              {i}
+            </Badge>
+          ))}
+        </div>
+      )}
       <div>
         <h3 className="mb-2 text-sm font-semibold">
           Other open roles <span className="font-normal text-muted-foreground">({related.length})</span>
