@@ -2,7 +2,7 @@
 
 A personal, run-locally job search app: one feed of fresh jobs pulled straight from company hiring systems, ranked against your profile, with tailored resumes and cover letters and a Chrome extension that autofills applications.
 
-Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Progress: [docs/TODO.md](docs/TODO.md).
 
 ## Requirements
 

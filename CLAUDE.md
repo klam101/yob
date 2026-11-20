@@ -48,6 +48,7 @@ User hardware: Windows, RTX 4060 Ti 8 GB, 16 GB RAM, i7-8700. Keep model choices
 
 - Versions are pinned: crate versions in `[workspace.dependencies]` in `backend/Cargo.toml` (member crates use `name.workspace = true`), Docker image tags in `docker-compose.yml` and the Dockerfiles. sqlx 0.9 needs Rust 1.94 or newer.
 - `frontend/` is Next.js 16 with Cache Components on. Its `AGENTS.md` says to read the bundled docs in `frontend/node_modules/next/dist/docs/` before writing Next code; do that.
+- Keep `docs/TODO.md` current: tick items as they're finished and add new ones as they come up.
 - Use `./scripts/dev.sh` (Git Bash) or `./scripts/dev.ps1` (PowerShell) for routine tasks: `up` (full stack in Docker), `dev` (db and redis in Docker; API, worker and web run locally), `typegen`, `check` (fmt, clippy, lint, tsc; run it after changes), `psql`. The README lists every command. When a new routine command comes up, add it to `scripts/dev.sh` and the README table. `dev.ps1` only forwards to `dev.sh`; never put logic in it.
 - On Windows, local URLs use `127.0.0.1`, not `localhost`: `localhost` tries IPv6 first, and Docker only binds IPv4, so each new connection stalls about 2 seconds. The Next dev server is bound to `127.0.0.1` (`next dev -H 127.0.0.1`) to stay local-only.
 - Migrations live in `backend/crates/db/migrations` and run on startup of both the API and the worker.
