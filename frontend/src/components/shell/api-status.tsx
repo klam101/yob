@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "cn";
 
 type Status = "checking" | "ok" | "degraded" | "offline";
 
 const styles: Record<Status, { dot: string; label: string }> = {
-  checking: { dot: "bg-zinc-400", label: "Checking API" },
-  ok: { dot: "bg-emerald-500", label: "API connected" },
-  degraded: { dot: "bg-amber-500", label: "API degraded" },
-  offline: { dot: "bg-red-500", label: "API offline" },
+  checking: { dot: "bg-muted-foreground/50", label: "Checking API…" },
+  ok: { dot: "bg-success", label: "API connected" },
+  degraded: { dot: "bg-warning", label: "API degraded: database or Redis unreachable" },
+  offline: { dot: "bg-destructive", label: "API offline" },
 };
 
 /** Calls GET /health from the browser, so it checks CORS and the whole chain. */
@@ -33,9 +35,13 @@ export function ApiStatus() {
 
   const { dot, label } = styles[status];
   return (
-    <p className="flex items-center gap-2 text-xs text-zinc-500" role="status">
-      <span className={`size-2 rounded-full ${dot}`} aria-hidden />
-      {label}
-    </p>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span role="status" aria-label={label} className="flex size-9 items-center justify-center">
+          <span className={cn("size-2.5 rounded-full ring-4 ring-background", dot)} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
   );
 }

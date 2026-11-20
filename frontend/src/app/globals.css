@@ -1,26 +1,147 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * yob theme. Colors are CSS variables so light and dark swap in one place.
+ * Style direction: soft and rounded (HeroUI-like): large radii, soft shadows,
+ * tinted "flat" variants, one indigo accent.
+ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.25);
+  --radius-2xl: calc(var(--radius) * 1.5);
+  --radius-3xl: calc(var(--radius) * 2);
+  --radius-4xl: calc(var(--radius) * 2.5);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-raised: var(--shadow-raised);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.985 0.003 275);
+  --foreground: oklch(0.21 0.02 275);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+
+  /* Indigo accent */
+  --primary: oklch(0.52 0.21 276);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.955 0.006 275);
+  --secondary-foreground: oklch(0.3 0.02 275);
+  --muted: oklch(0.955 0.006 275);
+  --muted-foreground: oklch(0.52 0.02 275);
+  --accent: oklch(0.95 0.025 276);
+  --accent-foreground: oklch(0.42 0.18 276);
+
+  --destructive: oklch(0.58 0.21 25);
+  --success: oklch(0.6 0.15 155);
+  --warning: oklch(0.72 0.16 70);
+
+  --border: oklch(0.915 0.008 275);
+  --input: oklch(0.915 0.008 275);
+  --ring: oklch(0.52 0.21 276);
+
+  --shadow-soft: 0 1px 2px oklch(0.2 0.02 275 / 0.04), 0 2px 12px -2px oklch(0.2 0.02 275 / 0.06);
+  --shadow-raised: 0 2px 4px oklch(0.2 0.02 275 / 0.05), 0 12px 32px -8px oklch(0.2 0.02 275 / 0.16);
+}
+
+.dark {
+  --background: oklch(0.155 0.012 275);
+  --foreground: oklch(0.95 0.005 275);
+  --card: oklch(0.2 0.014 275);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.22 0.014 275);
+  --popover-foreground: var(--foreground);
+
+  --primary: oklch(0.68 0.16 276);
+  --primary-foreground: oklch(0.16 0.02 275);
+
+  --secondary: oklch(0.26 0.014 275);
+  --secondary-foreground: oklch(0.9 0.005 275);
+  --muted: oklch(0.26 0.014 275);
+  --muted-foreground: oklch(0.7 0.015 275);
+  --accent: oklch(0.3 0.06 276);
+  --accent-foreground: oklch(0.85 0.09 276);
+
+  --destructive: oklch(0.68 0.18 22);
+  --success: oklch(0.72 0.15 155);
+  --warning: oklch(0.8 0.14 75);
+
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.68 0.16 276);
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 2px 12px -2px oklch(0 0 0 / 0.3);
+  --shadow-raised: 0 2px 4px oklch(0 0 0 / 0.35), 0 12px 32px -8px oklch(0 0 0 / 0.55);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Job descriptions come from the API as sanitized HTML. */
+@layer components {
+  .prose-job {
+    @apply text-sm leading-relaxed text-foreground/90;
+  }
+  .prose-job h3 {
+    @apply mt-6 mb-2 text-base font-semibold text-foreground first:mt-0;
+  }
+  .prose-job p {
+    @apply my-2;
+  }
+  .prose-job ul {
+    @apply my-2 list-disc space-y-1 pl-5 marker:text-muted-foreground;
+  }
+  .prose-job a {
+    @apply text-primary underline underline-offset-4;
+  }
 }
