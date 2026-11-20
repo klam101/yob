@@ -7,11 +7,13 @@ use yob_core::config::Config;
 use crate::{openapi::ApiDoc, state::AppState};
 
 mod health;
+mod jobs;
 
 /// Every feature adds its routes here with `.merge(feature::routes())`.
 pub fn router(state: AppState, config: &Config) -> anyhow::Result<Router> {
     let (router, spec) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .merge(health::routes())
+        .merge(jobs::routes())
         .split_for_parts();
 
     let cors = CorsLayer::new()

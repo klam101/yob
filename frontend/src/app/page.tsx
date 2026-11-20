@@ -1,10 +1,5 @@
-import { Placeholder } from "@/components/placeholder";
+import { redirect } from "next/navigation";
 
-export default function FeedPage() {
-  return (
-    <Placeholder title="Feed">
-      Fresh jobs from company career pages, with filters for title, location, remote, salary,
-      seniority, company, platform, posted date and stale listings.
-    </Placeholder>
-  );
+export default function Home() {
+  redirect("/jobs");
 }

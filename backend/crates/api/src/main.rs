@@ -1,6 +1,7 @@
 use anyhow::Context;
 use yob_core::{config::Config, shutdown, telemetry};
 
+mod error;
 mod openapi;
 mod routes;
 mod state;

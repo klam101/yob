@@ -68,6 +68,9 @@ services:
       args:
         # Called from the browser, so it is the host address, not the service name.
         NEXT_PUBLIC_API_URL: http://localhost:8080
+    environment:
+      # Server-side rendering calls the API inside the Docker network.
+      API_INTERNAL_URL: http://api:8080
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

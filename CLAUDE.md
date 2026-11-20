@@ -52,6 +52,11 @@ User hardware: Windows, RTX 4060 Ti 8 GB, 16 GB RAM, i7-8700. Keep model choices
 - On Windows, local URLs use `127.0.0.1`, not `localhost`: `localhost` tries IPv6 first, and Docker only binds IPv4, so each new connection stalls about 2 seconds. The Next dev server is bound to `127.0.0.1` (`next dev -H 127.0.0.1`) to stay local-only.
 - Migrations live in `backend/crates/db/migrations` and run on startup of both the API and the worker.
 - New API routes: a `routes(): OpenApiRouter<AppState>` function per feature under `crates/api/src/routes/`, merged in `routes/mod.rs`. After any API change, run `npm run typegen` in `frontend/` (the API must be running) to regenerate `frontend/src/api/schema.ts`. Never hand-edit that file; call the API through `frontend/src/api/client.ts`.
+- Frontend conventions:
+  - **UI components** are shadcn/ui (Radix base) in `frontend/src/components/ui/`, restyled HeroUI-like: large radii, soft shadows, `flat` and `bordered` tints, press scale. Add new ones with `npx shadcn@4.23.0 add <name>`, then match that style. Colors are tokens in `globals.css` (indigo `primary`, plus `success`, `warning`, `destructive`) with light and dark values.
+  - **Feed filters live in the URL query** (`src/lib/filters.ts`), with comma-separated lists matching the API.
+  - **Runtime data needs `<Suspense>`:** with Cache Components on, anything reading `searchParams`, `params`, `usePathname` or live API data must sit inside `<Suspense>`, or `next build` fails.
+  - **Server vs browser API calls:** server components call the API at `API_INTERNAL_URL` (`http://api:8080` in Docker); the browser uses `NEXT_PUBLIC_API_URL`.
 - Build each feature in this order: API types and a stub endpoint, then the page against the stub, then the real backend (migration, core logic, worker), then an end-to-end check.
 
 ## Build order

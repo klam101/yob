@@ -21,16 +21,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists open jobs, filtered, sorted and paginated. */
+        get: operations["list_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One job with its full description and match details. */
+        get: operations["get_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Error body returned by every endpoint on failure. */
+        ApiError: {
+            message: string;
+        };
+        Company: {
+            description: string;
+            domain: string;
+            industries: string[];
+            name: string;
+        };
+        /** @enum {string} */
+        EmploymentType: "full_time" | "part_time" | "contract" | "internship";
+        FacetCount: {
+            /** Format: int32 */
+            count: number;
+            value: string;
+        };
+        /** @description Options for filter menus, counted over all open jobs. */
+        Facets: {
+            companies: components["schemas"]["FacetCount"][];
+            departments: components["schemas"]["FacetCount"][];
+        };
         Health: {
             database: boolean;
             redis: boolean;
             /** @description "ok" when every dependency answered, otherwise "degraded". */
             status: string;
         };
+        JobDetail: {
+            breakdown?: components["schemas"]["MatchBreakdown"] | null;
+            /** @description Sanitized HTML of the full posting. */
+            description_html: string;
+            education?: string | null;
+            job: components["schemas"]["JobSummary"];
+            keywords?: components["schemas"]["KeywordGap"] | null;
+            skills: string[];
+            /** @description One-paragraph plain-language summary of the role. */
+            summary: string;
+            /** @description Extra detail about the workplace arrangement, e.g. in-office days. */
+            workplace_note?: string | null;
+            /** Format: int32 */
+            yoe_min?: number | null;
+        };
+        JobSummary: {
+            apply_url: string;
+            company: components["schemas"]["Company"];
+            department: string;
+            employment_type: components["schemas"]["EmploymentType"];
+            /**
+             * Format: date-time
+             * @description When yob first saw the job; more trustworthy than `posted_at`.
+             */
+            first_seen_at: string;
+            id: string;
+            locations: string[];
+            match?: components["schemas"]["Match"] | null;
+            /** @description Open more than 60 days or reposted more than twice. */
+            possibly_stale: boolean;
+            /**
+             * Format: date-time
+             * @description The date the company says it posted the job.
+             */
+            posted_at: string;
+            /**
+             * Format: int32
+             * @description Times this job closed and reappeared.
+             */
+            repost_count: number;
+            salary?: components["schemas"]["Salary"] | null;
+            seniority: components["schemas"]["Seniority"];
+            source: components["schemas"]["Source"];
+            title: string;
+            workplace: components["schemas"]["Workplace"];
+        };
+        JobsPage: {
+            /**
+             * Format: int32
+             * @description Distinct companies among the matching jobs.
+             */
+            company_count: number;
+            facets: components["schemas"]["Facets"];
+            items: components["schemas"]["JobSummary"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            /**
+             * Format: int32
+             * @description Jobs matching the filters, across all pages.
+             */
+            total: number;
+        };
+        KeywordGap: {
+            /** @description Keywords from the job that the profile covers. */
+            matched: string[];
+            /** @description Keywords from the job the profile doesn't mention. */
+            missing: string[];
+        };
+        /** @description How well a job fits the user's profile. Absent until a resume is added. */
+        Match: {
+            label: components["schemas"]["MatchLabel"];
+            /** @description Two or three short reasons, best first. */
+            reasons: string[];
+            /**
+             * Format: int32
+             * @description 0 to 100.
+             */
+            score: number;
+        };
+        MatchBreakdown: {
+            /** Format: int32 */
+            education: number;
+            /** Format: int32 */
+            experience: number;
+            /** Format: int32 */
+            skill: number;
+        };
+        /** @enum {string} */
+        MatchLabel: "strong" | "good" | "fair" | "low";
+        Salary: {
+            currency: string;
+            /** Format: int32 */
+            max: number;
+            /** Format: int32 */
+            min: number;
+            period: components["schemas"]["SalaryPeriod"];
+        };
+        /** @enum {string} */
+        SalaryPeriod: "year" | "hour";
+        /** @enum {string} */
+        Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
+        /**
+         * @description The hiring platform a job was read from.
+         * @enum {string}
+         */
+        Source: "greenhouse" | "lever" | "ashby";
+        /** @enum {string} */
+        Workplace: "onsite" | "hybrid" | "remote";
     };
     responses: never;
     parameters: never;
@@ -63,6 +229,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    list_jobs: {
+        parameters: {
+            query?: {
+                /** @description Matches title, company, department and skills. */
+                q?: string;
+                /** @description Matches any of the job's locations, e.g. "New York". */
+                location?: string;
+                /** @description Comma-separated: onsite, hybrid, remote. */
+                workplace?: string;
+                /** @description Comma-separated: full_time, part_time, contract, internship. */
+                employment_type?: string;
+                /** @description Comma-separated: intern, entry, mid, senior, staff_plus. */
+                seniority?: string;
+                /** @description Comma-separated department names. */
+                department?: string;
+                /** @description Comma-separated company names. */
+                company?: string;
+                /** @description Comma-separated: greenhouse, lever, ashby. */
+                source?: string;
+                posted_within?: "24h" | "3d" | "1w" | "2w" | "1m" | "3m";
+                /** @description Minimum yearly salary; jobs without a listed salary are excluded. */
+                salary_min?: number;
+                /** @description Hide jobs flagged as possibly stale. */
+                hide_stale?: boolean;
+                sort?: "recommended" | "newest" | "salary";
+                /** @description 1-based page number. */
+                page?: number;
+                /** @description Defaults to 20, at most 100. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobsPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
