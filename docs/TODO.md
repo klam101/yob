@@ -38,11 +38,37 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## To do
 
-### 1b. Job feed follow-ups
-- [ ] Grow the company list toward a few hundred (add more verified boards)
-- [ ] Re-normalize stored jobs when parsing rules change (seniority, salary), without refetching
-- [ ] Faster first imports: batch inserts instead of one statement per job
+### 1b. Coverage (roadmap and details: [SOURCES.md](SOURCES.md))
+
+Goal: virtually every US or remote job from credible sources. No LinkedIn or Indeed scraping.
+
+**Company discovery and scale** (`feature/company-discovery`, next)
+- [ ] Keep only US and remote jobs at import (out-of-scope jobs stored as small rows without descriptions)
+- [ ] Re-normalize stored jobs when parsing rules change (seniority, scope, text-parsed salary), without refetching
+- [ ] Faster imports: batch inserts instead of one statement per job
+- [ ] Discover Greenhouse, Lever and Ashby boards from Common Crawl (slow, resumable, retrying) and verify them before adding
+- [ ] Discover boards from links inside job descriptions
+- [ ] Feed at 200k+ jobs: trigram index for keyword search, cached facets, searchable Company filter
+- [ ] Job sources page: discovery stats and a paginated company table
 - [ ] Company names for Lever and Ashby boards (their APIs don't return one)
+
+**More ATS platforms**
+- [ ] Workday (POST to the careers page's JSON endpoint)
+- [ ] SmartRecruiters, Workable, Recruitee, BambooHR
+- [ ] Discovery for each new platform
+- [ ] Later: Breezy, JazzHR, Personio, Teamtailor, Jobvite, iCIMS, SuccessFactors, Oracle, Eightfold
+
+**Job board APIs**
+- [ ] De-duplication: employer ATS wins; match by apply URL, then company + title + location + hash; keep every source as attribution
+- [ ] Himalayas, Remotive, RemoteOK (with required attribution)
+- [ ] USAJOBS and Adzuna (free API keys)
+
+**Career pages, staffing and long tail**
+- [ ] Career-page crawler reading schema.org JobPosting (sitemaps, robots.txt), with Web Data Commons discovery
+- [ ] "Staffing agency" tag and filter
+- [ ] Niche boards (government, higher ed, nonprofit) via RSS and APIs
+- [ ] Hacker News "Who is hiring" via the Algolia API, parsed by the local model
+- [ ] Extension: "Save this job" for a LinkedIn or Indeed page you're viewing (no crawling)
 
 ### 2. Login and saved searches
 - [ ] Single login account (argon2 password, sessions in Redis); sign-ups stay off
