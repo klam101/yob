@@ -45,6 +45,7 @@ Then open http://localhost:3000.
 | `fmt` | Formats the Rust code |
 | `psql` | Opens a Postgres shell |
 | `redis` | Opens a Redis shell |
+| `discover [file]` | Shows company discovery progress. With a file of job-board links (one per line), queues them to be checked and added. Needs the API running |
 | `reset-db` | Deletes all database data. Asks you to type `yes` first |
 
 URLs: web app http://localhost:3000, API health http://localhost:8080/health, OpenAPI spec http://localhost:8080/openapi.json.

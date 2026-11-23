@@ -15,7 +15,11 @@ fn per_second(host: &str) -> i64 {
     match host {
         "boards-api.greenhouse.io" => 4,
         "api.ashbyhq.com" => 2,
-        "api.lever.co" => 1,
+        "api.lever.co" | "jobs.lever.co" => 1,
+        "jobs.ashbyhq.com" => 2,
+        // Shared, often overloaded public index; discovery also pauses
+        // between pages.
+        "index.commoncrawl.org" => 1,
         _ => 1,
     }
 }
@@ -73,6 +77,37 @@ impl Fetcher {
     /// GETs `url` and parses the JSON body, waiting for the host's rate limit
     /// and retrying transient failures.
     pub async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, FetchError> {
+        self.request(url, "application/json", MAX_ATTEMPTS, |body| {
+            serde_json::from_str(&body).map_err(|e| {
+                // Lever answers some throttled requests with an HTML page.
+                if body.trim_start().starts_with('<') {
+                    FetchError::RateLimited(None)
+                } else {
+                    FetchError::Invalid(e.to_string())
+                }
+            })
+        })
+        .await
+    }
+
+    /// GETs `url` as text (an HTML page), with the same limits and retries.
+    pub async fn get_text(&self, url: &str) -> Result<String, FetchError> {
+        self.request(url, "*/*", MAX_ATTEMPTS, Ok).await
+    }
+
+    /// One attempt only, for callers with their own, slower retry schedule
+    /// (Common Crawl, which is often overloaded).
+    pub async fn get_text_once(&self, url: &str) -> Result<String, FetchError> {
+        self.request(url, "*/*", 1, Ok).await
+    }
+
+    async fn request<T>(
+        &self,
+        url: &str,
+        accept: &str,
+        attempts: u32,
+        parse: impl Fn(String) -> Result<T, FetchError>,
+    ) -> Result<T, FetchError> {
         let host = reqwest::Url::parse(url)
             .ok()
             .and_then(|u| u.host_str().map(str::to_owned))
@@ -82,9 +117,9 @@ impl Fetcher {
         loop {
             attempt += 1;
             self.wait_for_turn(&host).await;
-            match self.try_get(url).await {
+            match self.try_get(url, accept).await.and_then(&parse) {
                 Ok(value) => return Ok(value),
-                Err(err) if err.retryable() && attempt < MAX_ATTEMPTS => {
+                Err(err) if err.retryable() && attempt < attempts => {
                     let wait = match &err {
                         FetchError::RateLimited(Some(d)) => (*d).min(Duration::from_secs(60)),
                         _ => Duration::from_secs(2u64.pow(attempt)),
@@ -97,11 +132,11 @@ impl Fetcher {
         }
     }
 
-    async fn try_get<T: DeserializeOwned>(&self, url: &str) -> Result<T, FetchError> {
+    async fn try_get(&self, url: &str, accept: &str) -> Result<String, FetchError> {
         let resp = self
             .client
             .get(url)
-            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::ACCEPT, accept)
             .send()
             .await
             .map_err(|e| FetchError::Network(e.without_url().to_string()))?;
@@ -126,18 +161,9 @@ impl Fetcher {
             return Err(FetchError::Invalid(format!("HTTP {}", status.as_u16())));
         }
 
-        let body = resp
-            .text()
+        resp.text()
             .await
-            .map_err(|e| FetchError::Network(e.without_url().to_string()))?;
-        serde_json::from_str(&body).map_err(|e| {
-            // Lever answers some throttled requests with an HTML page.
-            if body.trim_start().starts_with('<') {
-                FetchError::RateLimited(None)
-            } else {
-                FetchError::Invalid(e.to_string())
-            }
-        })
+            .map_err(|e| FetchError::Network(e.without_url().to_string()))
     }
 
     /// Fixed one-second windows per host, counted in Redis so every worker

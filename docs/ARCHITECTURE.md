@@ -87,15 +87,26 @@ Greenhouse, Lever and Ashby endpoints were confirmed in November 2026; the rest 
 
 **Postgres is the job database; pages never call job boards.** The worker keeps a stored copy fresh in the background, and the feed and detail pages only query Postgres. They stay fast and keep working with the worker stopped or offline. Data survives restarts in the `pgdata` volume. Around 23,000 open jobs take about 230 MB.
 
-**Finding companies.** A verified starter list ships in `seed_companies.json` (170 companies) and is inserted on worker start. More are added from a board URL on Settings → Job sources, which checks that the board exists first. Preferences filter at search time, so the list can be broad.
+**Finding companies** (`discover.rs`; roadmap in [SOURCES.md](SOURCES.md)). A verified starter list ships in `seed_companies.json` (170 companies) and is inserted on worker start. Discovery adds more as `company_candidates`:
+
+- **Common Crawl:** the worker reads the URL index of the three newest crawls for Greenhouse, Lever and Ashby board links in the background. It pauses 3 seconds between pages, retries the often-overloaded index with long backoff, and saves progress per page in `discovery_progress`, so it resumes after restarts. Then it checks daily for a new crawl.
+- **Links:** board links inside new job postings.
+- **Manual:** one URL on Settings → Job sources (checked on the spot), or many at once there or with `./scripts/dev.sh discover <file>`.
+
+When no company is due, the worker verifies candidates through the same rate-limited fetcher. A board with open jobs becomes a company, named from Greenhouse's board API or the Lever or Ashby page title. A missing or empty board is retried after 30 days. Preferences filter at search time, so the list can be broad.
+
+**Scope: US and remote.** `normalize::us_scope` keeps a job when any location is in the US or isn't recognized (plain "Remote" counts as in). It drops a job only when every location is clearly elsewhere. Out-of-scope jobs are stored as rows without descriptions (`in_scope = false`), so checks still recognize them; the feed, facets and counts skip them.
 
 **How a check runs.**
 
 1. The schedule lives in Postgres (`companies.next_check_at`), so a restart resumes it instead of refetching everything. The worker claims due companies with `FOR UPDATE SKIP LOCKED` and a 20-minute lease, so several workers never check the same company twice. (This replaces a Redis Streams queue for ingestion; Redis Streams stays planned for on-demand AI work.)
 2. The interval adapts to how often the company posts: 15 minutes if it posted in the last week, 6 hours if in the last month, otherwise daily, with ±10% jitter. Failures back off from 15 minutes up to a day. Redis holds a per-host request budget per second (Greenhouse 4, Ashby 2, Lever 1), shared by the worker and the API.
-3. For Greenhouse, the worker first fetches the light id list; when nothing is new it only marks jobs as seen. Otherwise, and always for Lever and Ashby, it downloads full postings.
-4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Every check is logged in `company_checks`.
-5. Later: new jobs are embedded and queued for scoring.
+3. Each adapter returns either full jobs in one request (Lever, Ashby) or a light id list (Greenhouse). For an id list, details are fetched only when new ids appear.
+4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Jobs are written 500 per statement (`jsonb_to_recordset`); unchanged open jobs aren't rewritten. Every check is logged in `company_checks`.
+5. **Rule changes reach stored jobs.** Each row records the `normalize_version` it was derived with, and whether its salary came from text or a structured field. When the rules in `normalize.rs` change, bump `NORMALIZE_VERSION`. On start, the worker re-derives seniority, scope and text-parsed salaries from the stored title, locations and description, without refetching.
+6. Later: new jobs are embedded and queued for scoring.
+
+**Feed at scale.** Feed queries use partial indexes over open, in-scope jobs and a `pg_trgm` index for substring title search. Filter facets (top 60 departments, top 200 companies) are cached in Redis for 5 minutes; other companies are searched through `GET /jobs/companies`.
 
 **Stale and ghost jobs.**
 

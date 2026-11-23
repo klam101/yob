@@ -93,11 +93,10 @@ fn normalize_job(p: Posting) -> NormalizedJob {
         _ => normalize::infer_workplace(&p.text, &locations, &description_text),
     };
 
-    let salary = p
-        .salary_range
-        .as_ref()
-        .and_then(salary_from_range)
-        .or_else(|| normalize::parse_salary(&description_text));
+    let (salary, salary_from_text) = normalize::salary_or_text(
+        p.salary_range.as_ref().and_then(salary_from_range),
+        &description_text,
+    );
 
     let department = clean_department(
         p.categories
@@ -112,6 +111,7 @@ fn normalize_job(p: Posting) -> NormalizedJob {
         employment_type: normalize::infer_employment(&p.text, p.categories.commitment.as_deref()),
         seniority: normalize::infer_seniority(&p.text),
         salary,
+        salary_from_text,
         content_hash: normalize::content_hash(&p.text, &locations, &description_text),
         posted_at: p
             .created_at

@@ -205,6 +205,455 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
     None
 }
 
+/// Version of the rules in this file. Bump it whenever a rule changes how
+/// seniority, scope or a text-parsed salary come out; the worker then
+/// re-derives stored jobs (`ingest::renormalize`) without refetching them.
+pub const NORMALIZE_VERSION: i32 = 3;
+
+/// Where a single location string points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    Us,
+    NonUs,
+    /// "Remote", "Anywhere", or a place we don't recognize.
+    Unknown,
+}
+
+fn alternation(words: &[&str]) -> Regex {
+    let escaped: Vec<String> = words.iter().map(|w| regex::escape(w)).collect();
+    Regex::new(&format!(r"\b(?:{})\b", escaped.join("|"))).unwrap()
+}
+
+/// Explicit US or US-including regions. Wins over everything else, so
+/// "Remote - US or Canada" stays in scope.
+static US_EXPLICIT: LazyLock<Regex> = LazyLock::new(|| {
+    alternation(&[
+        "us",
+        "usa",
+        "u.s",
+        "u.s.a",
+        "united states",
+        "north america",
+        "americas",
+        "us-remote",
+        "remote-us",
+        "namer",
+        "amer",
+        "usca",
+    ])
+});
+
+/// Countries and regions other than the US. "Georgia", "Lebanon", "Panama",
+/// "Jersey" and similar are left out: they're also US states or towns.
+static FOREIGN_REGION: LazyLock<Regex> = LazyLock::new(|| {
+    alternation(&[
+        "canada",
+        "mexico",
+        "brazil",
+        "brasil",
+        "argentina",
+        "chile",
+        "colombia",
+        "peru",
+        "uruguay",
+        "costa rica",
+        "guatemala",
+        "puerto rico",
+        "dominican republic",
+        "united kingdom",
+        "uk",
+        "u.k",
+        "england",
+        "scotland",
+        "wales",
+        "northern ireland",
+        "ireland",
+        "france",
+        "germany",
+        "deutschland",
+        "spain",
+        "españa",
+        "portugal",
+        "italy",
+        "netherlands",
+        "the netherlands",
+        "holland",
+        "belgium",
+        "luxembourg",
+        "switzerland",
+        "austria",
+        "denmark",
+        "sweden",
+        "norway",
+        "finland",
+        "iceland",
+        "estonia",
+        "latvia",
+        "lithuania",
+        "poland",
+        "czechia",
+        "czech republic",
+        "slovakia",
+        "hungary",
+        "romania",
+        "bulgaria",
+        "greece",
+        "croatia",
+        "serbia",
+        "slovenia",
+        "ukraine",
+        "turkey",
+        "türkiye",
+        "cyprus",
+        "malta",
+        "israel",
+        "egypt",
+        "morocco",
+        "nigeria",
+        "kenya",
+        "ghana",
+        "south africa",
+        "uae",
+        "united arab emirates",
+        "saudi arabia",
+        "qatar",
+        "india",
+        "pakistan",
+        "bangladesh",
+        "sri lanka",
+        "nepal",
+        "china",
+        "hong kong",
+        "taiwan",
+        "japan",
+        "south korea",
+        "korea",
+        "singapore",
+        "malaysia",
+        "indonesia",
+        "philippines",
+        "thailand",
+        "vietnam",
+        "australia",
+        "new zealand",
+        "emea",
+        "apac",
+        "latam",
+        "europe",
+        "eu",
+        "asia",
+        "africa",
+        "oceania",
+        "middle east",
+        "latin america",
+        "south america",
+        "central america",
+        "european union",
+        "kuwait",
+        "cambodia",
+        "anz",
+        "dach",
+        "nordics",
+        "benelux",
+    ])
+});
+
+/// Canadian province codes after a comma ("Toronto, ON"), and ISO country
+/// codes some boards use ("Mohali, IND", "Burnaby, CAN", "GBR - LON Metro").
+/// Uppercase only, so "Can be remote" stays unknown.
+static FOREIGN_CODE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:,\s*(?:ON|BC|QC|AB|MB|NS|NB|NL|PE|SK)\b)|(?:^|,|\s-)\s*(?:IND|CAN|GBR|DEU|FRA|CRI|BRA|MEX|AUS|NZL|IRL|NZ)\b",
+    )
+    .unwrap()
+});
+
+/// US state codes after a comma or dash ("Austin, TX", "Hybrid - NY").
+static US_STATE_CODE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:,|\s-)\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b",
+    )
+    .unwrap()
+});
+
+static US_PLACE: LazyLock<Regex> = LazyLock::new(|| {
+    alternation(&[
+        "alabama",
+        "alaska",
+        "arizona",
+        "arkansas",
+        "california",
+        "colorado",
+        "connecticut",
+        "delaware",
+        "district of columbia",
+        "florida",
+        "georgia",
+        "hawaii",
+        "idaho",
+        "illinois",
+        "indiana",
+        "iowa",
+        "kansas",
+        "kentucky",
+        "louisiana",
+        "maine",
+        "maryland",
+        "massachusetts",
+        "michigan",
+        "minnesota",
+        "mississippi",
+        "missouri",
+        "montana",
+        "nebraska",
+        "nevada",
+        "new hampshire",
+        "new jersey",
+        "new mexico",
+        "new york",
+        "north carolina",
+        "north dakota",
+        "ohio",
+        "oklahoma",
+        "oregon",
+        "pennsylvania",
+        "rhode island",
+        "south carolina",
+        "south dakota",
+        "tennessee",
+        "texas",
+        "utah",
+        "vermont",
+        "virginia",
+        "washington",
+        "west virginia",
+        "wisconsin",
+        "wyoming",
+        // Cities and areas that often appear without a state.
+        "nyc",
+        "sf",
+        "san francisco",
+        "bay area",
+        "sf bay area",
+        "silicon valley",
+        "los angeles",
+        "seattle",
+        "austin",
+        "boston",
+        "chicago",
+        "denver",
+        "atlanta",
+        "miami",
+        "dallas",
+        "houston",
+        "philadelphia",
+        "phoenix",
+        "san diego",
+        "san jose",
+        "portland",
+        "salt lake city",
+        "nashville",
+        "raleigh",
+        "pittsburgh",
+        "detroit",
+        "minneapolis",
+        "palo alto",
+        "mountain view",
+        "menlo park",
+        "sunnyvale",
+        "redwood city",
+        "santa clara",
+        "brooklyn",
+        "manhattan",
+        "jersey city",
+        "boulder",
+        "irvine",
+        "san mateo",
+        "cambridge, ma",
+        "washington dc",
+        "washington, d.c",
+        "d.c",
+        "dc",
+        "charlotte",
+        "columbus",
+        "st. louis",
+        "kansas city",
+        "baltimore",
+        "tampa",
+        "orlando",
+        "las vegas",
+        "sacramento",
+        "oakland",
+    ])
+});
+
+/// Big non-US cities that often appear without a country. Checked after the
+/// US lists, so "Dublin, OH" and "Paris, TX" stay American.
+static FOREIGN_CITY: LazyLock<Regex> = LazyLock::new(|| {
+    alternation(&[
+        "london",
+        "paris",
+        "berlin",
+        "munich",
+        "hamburg",
+        "frankfurt",
+        "amsterdam",
+        "dublin",
+        "toronto",
+        "vancouver",
+        "montreal",
+        "montréal",
+        "ottawa",
+        "calgary",
+        "edmonton",
+        "sydney",
+        "melbourne",
+        "brisbane",
+        "auckland",
+        "tokyo",
+        "osaka",
+        "seoul",
+        "beijing",
+        "shanghai",
+        "shenzhen",
+        "taipei",
+        "manila",
+        "jakarta",
+        "bangkok",
+        "ho chi minh city",
+        "hanoi",
+        "kuala lumpur",
+        "bangalore",
+        "bengaluru",
+        "hyderabad",
+        "pune",
+        "mumbai",
+        "delhi",
+        "new delhi",
+        "gurgaon",
+        "gurugram",
+        "noida",
+        "chennai",
+        "kolkata",
+        "tel aviv",
+        "são paulo",
+        "sao paulo",
+        "rio de janeiro",
+        "mexico city",
+        "ciudad de méxico",
+        "guadalajara",
+        "buenos aires",
+        "bogotá",
+        "bogota",
+        "medellín",
+        "medellin",
+        "santiago",
+        "lima",
+        "madrid",
+        "barcelona",
+        "lisbon",
+        "porto",
+        "milan",
+        "rome",
+        "zurich",
+        "zürich",
+        "geneva",
+        "vienna",
+        "brussels",
+        "copenhagen",
+        "stockholm",
+        "oslo",
+        "helsinki",
+        "warsaw",
+        "krakow",
+        "kraków",
+        "wroclaw",
+        "prague",
+        "budapest",
+        "bucharest",
+        "sofia",
+        "athens",
+        "istanbul",
+        "kyiv",
+        "belgrade",
+        "zagreb",
+        "tallinn",
+        "riga",
+        "vilnius",
+        "edinburgh",
+        "manchester",
+        "glasgow",
+        "belfast",
+        "cape town",
+        "johannesburg",
+        "lagos",
+        "nairobi",
+        "cairo",
+        "dubai",
+        "abu dhabi",
+        "riyadh",
+        "doha",
+        // Provinces here, not with the countries: "Ontario, CA" is in California.
+        "ontario",
+        "british columbia",
+        "alberta",
+        "quebec",
+        "québec",
+        "manitoba",
+        "nova scotia",
+        "saskatchewan",
+        "malmö",
+        "malmo",
+        "reykjavík",
+        "reykjavik",
+        "cork",
+        "canberra",
+        "wellington",
+        "burnaby",
+        "cdmx",
+        "aveiro",
+        "waterloo",
+    ])
+});
+
+/// Where one location string points. Order matters; see the statics above.
+pub fn classify_place(location: &str) -> Place {
+    let lower = location.to_lowercase();
+    if US_EXPLICIT.is_match(&lower) {
+        Place::Us
+    } else if FOREIGN_REGION.is_match(&lower.replace("new mexico", ""))
+        || FOREIGN_CODE.is_match(location)
+    {
+        Place::NonUs
+    } else if US_STATE_CODE.is_match(location) || US_PLACE.is_match(&lower) {
+        Place::Us
+    } else if FOREIGN_CITY.is_match(&lower) {
+        Place::NonUs
+    } else {
+        Place::Unknown
+    }
+}
+
+/// Whether a job belongs in the feed: US or remote for US workers. Out only
+/// when every location points outside the US. Unknown places ("Remote",
+/// a small town) count as in, so US jobs are never hidden by a gap in the lists.
+pub fn us_scope(locations: &[String]) -> bool {
+    locations.is_empty() || locations.iter().any(|l| classify_place(l) != Place::NonUs)
+}
+
+/// A platform's structured salary if it has one, otherwise one parsed from
+/// the description. The flag says it came from text (and can be re-derived).
+pub fn salary_or_text(structured: Option<Salary>, text: &str) -> (Option<Salary>, bool) {
+    match structured {
+        Some(s) => (Some(s), false),
+        None => {
+            let parsed = parse_salary(text);
+            let from_text = parsed.is_some();
+            (parsed, from_text)
+        }
+    }
+}
+
 /// Stable fingerprint of a posting's content. A new job id with the same hash
 /// as a closed job at the same company is a repost.
 pub fn content_hash(title: &str, locations: &[String], text: &str) -> String {
@@ -317,6 +766,57 @@ mod tests {
             parse_salary("$900,000 - $1,254,000 MXN").is_none(),
             "seven-figure \"$\" amounts are probably not USD"
         );
+    }
+
+    #[test]
+    fn places() {
+        let cases = [
+            ("San Francisco, CA", Place::Us),
+            ("New York, NY", Place::Us),
+            ("Remote - US", Place::Us),
+            ("US-Remote", Place::Us),
+            ("Remote, North America", Place::Us),
+            ("Remote - US or Canada", Place::Us),
+            ("United States", Place::Us),
+            ("Hybrid - NYC", Place::Us),
+            ("Austin", Place::Us),
+            ("Albuquerque, New Mexico", Place::Us),
+            ("Dublin, OH", Place::Us),
+            ("Washington, D.C.", Place::Us),
+            ("Remote", Place::Unknown),
+            ("Anywhere", Place::Unknown),
+            ("London, United Kingdom", Place::NonUs),
+            ("London", Place::NonUs),
+            ("Toronto, ON", Place::NonUs),
+            ("Toronto, ON, CA", Place::NonUs),
+            ("Remote - Canada", Place::NonUs),
+            ("Remote, EMEA", Place::NonUs),
+            ("Bengaluru", Place::NonUs),
+            ("Mexico City", Place::NonUs),
+            ("Berlin, Germany", Place::NonUs),
+            ("Dublin, Ireland", Place::NonUs),
+            ("Remote - European Union", Place::NonUs),
+            ("Mohali, IND", Place::NonUs),
+            ("GBR - LON Metro", Place::NonUs),
+            ("Vancouver, British Columbia", Place::NonUs),
+            ("Ontario, CA", Place::Us),
+            ("NAMER", Place::Us),
+            ("Can be remote", Place::Unknown),
+            ("Hybrid", Place::Unknown),
+        ];
+        for (loc, want) in cases {
+            assert_eq!(classify_place(loc), want, "{loc}");
+        }
+    }
+
+    #[test]
+    fn scope() {
+        let locs = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(us_scope(&locs(&[])));
+        assert!(us_scope(&locs(&["Remote"])));
+        assert!(us_scope(&locs(&["London", "New York, NY"])));
+        assert!(!us_scope(&locs(&["London", "Paris, France"])));
+        assert!(!us_scope(&locs(&["Remote - Canada"])));
     }
 
     #[test]

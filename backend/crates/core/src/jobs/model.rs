@@ -73,6 +73,8 @@ pub struct NormalizedJob {
     pub employment_type: EmploymentType,
     pub seniority: Seniority,
     pub salary: Option<Salary>,
+    /// The salary was parsed from the description, not a platform field.
+    pub salary_from_text: bool,
     pub posted_at: DateTime<Utc>,
     pub apply_url: String,
     /// Sanitized HTML, safe to render.

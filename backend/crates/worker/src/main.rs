@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use yob_core::{
     config::Config,
-    jobs::{Fetcher, ingest, seed},
+    jobs::{Fetcher, discover, ingest, seed},
     shutdown, telemetry,
 };
 
@@ -39,6 +39,17 @@ async fn main() -> anyhow::Result<()> {
     if added > 0 {
         tracing::info!(added, "added seed companies");
     }
+    // Apply changed parsing rules to stored jobs, without refetching them.
+    let renormalized = ingest::renormalize(&db)
+        .await
+        .context("re-normalizing stored jobs")?;
+    if renormalized > 0 {
+        tracing::info!(jobs = renormalized, "re-derived fields of stored jobs");
+    }
+
+    // Finds new company boards slowly in the background; progress is saved
+    // per page, so stopping it at any point is safe.
+    let crawl = tokio::spawn(discover::run_common_crawl(db.clone(), fetcher.clone()));
     tracing::info!("worker started; checking companies as they come due");
 
     let stop = shutdown::signal();
@@ -61,14 +72,31 @@ async fn main() -> anyhow::Result<()> {
             result = ingest::run_due_checks(&db, &fetcher, BATCH, CONCURRENCY) => result,
         };
 
-        let idle = match checked {
-            Ok(0) => true,
-            Ok(_) => false,
+        let checked = match checked {
+            Ok(n) => n,
             Err(e) => {
                 tracing::error!(error = %e, "couldn't claim due companies");
-                true
+                0
             }
         };
+
+        // Spare capacity goes to verifying discovered boards. Due companies
+        // always come first.
+        let verified = if (checked as i64) < BATCH {
+            tokio::select! {
+                () = &mut stop => break,
+                result = discover::verify_candidates(&db, &fetcher, BATCH, CONCURRENCY) => {
+                    result.unwrap_or_else(|e| {
+                        tracing::error!(error = %e, "couldn't claim discovered boards");
+                        0
+                    })
+                }
+            }
+        } else {
+            0
+        };
+
+        let idle = checked == 0 && verified == 0;
         if idle {
             tokio::select! {
                 () = &mut stop => break,
@@ -77,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    crawl.abort();
     tracing::info!("worker stopped");
     Ok(())
 }

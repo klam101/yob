@@ -22,6 +22,7 @@ import {
 } from "@/lib/filters";
 import { cn } from "cn";
 import { AllFiltersDialog } from "./all-filters-dialog";
+import { CompanyPicker } from "./company-picker";
 import { type Choice, CheckList, RadioList, facetChoices } from "./controls";
 import { useFeed } from "./feed-context";
 
@@ -46,7 +47,7 @@ export function FilterChips({ facets }: { facets: Facets }) {
       <CheckChip label="Job type" filterKey="employment_type" options={EMPLOYMENT} />
       <RadioChip label="Salary" filterKey="salary_min" options={SALARY_MIN} anyLabel="Any salary" />
       <CheckChip label="Department" filterKey="department" options={facetChoices(facets.departments)} scroll />
-      <CheckChip label="Company" filterKey="company" options={facetChoices(facets.companies)} scroll />
+      <CompanyChip top={facetChoices(facets.companies)} />
       <CheckChip label="Source" filterKey="source" options={SOURCE} />
 
       <label className="flex h-8 cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 text-[0.8125rem] font-medium transition-colors hover:bg-muted">
@@ -117,6 +118,30 @@ function CheckChip({
       <PopoverContent align="start" className="w-64 p-1.5">
         <ChipHeader label={label} onClear={selected.length ? () => apply(withValue(query, filterKey, undefined)) : undefined} />
         {scroll ? <ScrollArea className="max-h-72">{list}</ScrollArea> : list}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CompanyChip({ top }: { top: Choice[] }) {
+  const { query, apply } = useFeed();
+  const selected = listOf(query, "company");
+  const summary =
+    selected.length === 1 ? selected[0] : selected.length > 1 ? `${selected.length} selected` : undefined;
+  return (
+    <Popover>
+      <ChipTrigger label="Company" summary={summary} active={selected.length > 0} />
+      <PopoverContent align="start" className="w-72 p-1.5">
+        <ChipHeader
+          label="Company"
+          onClear={selected.length ? () => apply(withValue(query, "company", undefined)) : undefined}
+        />
+        <CompanyPicker
+          top={top}
+          selected={selected}
+          onToggle={(value) => apply(toggleInList(query, "company", value))}
+          autoFocus
+        />
       </PopoverContent>
     </Popover>
   );

@@ -31,6 +31,7 @@ import {
   withValue,
 } from "@/lib/filters";
 import { cn } from "cn";
+import { CompanyPicker } from "./company-picker";
 import { type Choice, CheckList, RadioList, facetChoices } from "./controls";
 import { useFeed } from "./feed-context";
 
@@ -111,7 +112,20 @@ const SECTIONS: Section[] = [
   { id: "salary", group: "Pay", label: "Salary", keys: ["salary_min"], render: radios("salary_min", SALARY_MIN, "Any salary") },
   { id: "location", group: "Location", label: "Location", keys: ["location"], render: text("location", "City, state or Remote") },
   { id: "workplace", group: "Location", label: "Workplace", keys: ["workplace"], render: checks("workplace", () => WORKPLACE) },
-  { id: "company", group: "Company", label: "Company", keys: ["company"], render: checks("company", (f) => facetChoices(f.companies)) },
+  {
+    id: "company",
+    group: "Company",
+    label: "Company",
+    keys: ["company"],
+    render: (draft, set, facets) => (
+      <CompanyPicker
+        top={facetChoices(facets.companies)}
+        selected={listOf(draft, "company")}
+        onToggle={(v) => set(toggleInList(draft, "company", v))}
+        className="max-w-md"
+      />
+    ),
+  },
   { id: "source", group: "Company", label: "Source", keys: ["source"], render: checks("source", () => SOURCE) },
 ];
 

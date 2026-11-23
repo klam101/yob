@@ -88,7 +88,9 @@ const SELECT_JOB: &str = "SELECT j.id, j.title, j.department, j.locations, j.wor
        c.careers_url AS company_careers_url, c.platform";
 
 fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
-    qb.push(" FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.closed_at IS NULL");
+    qb.push(
+        " FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.closed_at IS NULL AND j.in_scope",
+    );
 
     if let Some(q) = &f.q {
         let like = format!("%{}%", escape_like(q));
@@ -206,23 +208,52 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<JobDetailRo
         .await
 }
 
-/// Filter-menu options with open-job counts.
+/// Companies listed in the Company filter before the user searches.
+pub const TOP_COMPANIES: i64 = 200;
+
+/// Filter-menu options with open-job counts: the 60 biggest departments and
+/// the [`TOP_COMPANIES`] companies with the most jobs. The same for every
+/// request, so the API caches them.
 pub async fn facets(pool: &PgPool) -> sqlx::Result<(Vec<Count>, Vec<Count>)> {
     let departments = sqlx::query_as(
         "SELECT department AS value, count(*) AS count FROM jobs
-         WHERE closed_at IS NULL AND department IS NOT NULL
+         WHERE closed_at IS NULL AND in_scope AND department IS NOT NULL
          GROUP BY department ORDER BY count(*) DESC, department LIMIT 60",
     )
     .fetch_all(pool)
     .await?;
     let companies = sqlx::query_as(
         "SELECT c.name AS value, count(*) AS count FROM jobs j JOIN companies c ON c.id = j.company_id
-         WHERE j.closed_at IS NULL
-         GROUP BY c.name ORDER BY c.name",
+         WHERE j.closed_at IS NULL AND j.in_scope
+         GROUP BY c.name ORDER BY count(*) DESC, c.name LIMIT $1",
     )
+    .bind(TOP_COMPANIES)
     .fetch_all(pool)
     .await?;
     Ok((departments, companies))
+}
+
+/// Open-job counts for companies matching `q` (for the Company filter's
+/// search box), or for exactly `names` (lowercased; selected companies that
+/// aren't in the top list).
+pub async fn company_counts(
+    pool: &PgPool,
+    q: Option<&str>,
+    names: &[String],
+    limit: i64,
+) -> sqlx::Result<Vec<Count>> {
+    let like = q.map(|q| format!("%{}%", escape_like(q.trim())));
+    sqlx::query_as(
+        "SELECT c.name AS value, count(j.id) AS count
+         FROM companies c JOIN jobs j ON j.company_id = c.id AND j.closed_at IS NULL AND j.in_scope
+         WHERE ($1::text IS NULL OR c.name ILIKE $1) AND (cardinality($2::text[]) = 0 OR lower(c.name) = ANY($2))
+         GROUP BY c.name ORDER BY count(j.id) DESC, c.name LIMIT $3",
+    )
+    .bind(like)
+    .bind(names)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 // --- companies -------------------------------------------------------------
@@ -242,18 +273,86 @@ pub struct CompanyRow {
     pub last_error: Option<String>,
 }
 
-const SELECT_COMPANY: &str =
-    "SELECT c.id, c.name, c.platform, c.board_token, c.careers_url, c.active,
-       (SELECT count(*) FROM jobs j WHERE j.company_id = c.id AND j.closed_at IS NULL) AS open_jobs,
+const SELECT_COMPANY: &str = "SELECT c.id, c.name, c.platform, c.board_token, c.careers_url, c.active,
+       (SELECT count(*) FROM jobs j WHERE j.company_id = c.id AND j.closed_at IS NULL AND j.in_scope) AS open_jobs,
        c.last_checked_at, c.next_check_at, c.last_status, c.last_error
        FROM companies c";
 
-pub async fn list_companies(pool: &PgPool) -> sqlx::Result<Vec<CompanyRow>> {
-    sqlx::query_as(AssertSqlSafe(format!(
-        "{SELECT_COMPANY} ORDER BY lower(c.name)"
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CompanyStatus {
+    #[default]
+    All,
+    Errors,
+    /// Not checked yet.
+    Pending,
+}
+
+/// Totals for the Job sources page, over every company.
+#[derive(Debug, Clone, Copy, Default, sqlx::FromRow)]
+pub struct SourcesSummary {
+    pub companies: i64,
+    pub open_jobs: i64,
+    pub errors: i64,
+    pub pending: i64,
+}
+
+pub struct CompanyPage {
+    pub rows: Vec<CompanyRow>,
+    /// Companies matching the search and status, across all pages.
+    pub total: i64,
+    pub summary: SourcesSummary,
+}
+
+/// One page of companies, by name, filtered by a name or token search and status.
+pub async fn list_companies(
+    pool: &PgPool,
+    q: Option<&str>,
+    status: CompanyStatus,
+    page: u32,
+    page_size: u32,
+) -> sqlx::Result<CompanyPage> {
+    const WHERE: &str = " WHERE ($1::text IS NULL OR c.name ILIKE $1 OR c.board_token ILIKE $1)
+         AND ($2 = 'all' OR ($2 = 'errors' AND c.last_status = 'error')
+              OR ($2 = 'pending' AND c.last_status IS NULL))";
+    let like = q
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| format!("%{}%", escape_like(q)));
+    let status = match status {
+        CompanyStatus::All => "all",
+        CompanyStatus::Errors => "errors",
+        CompanyStatus::Pending => "pending",
+    };
+
+    let total: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
+        "SELECT count(*) FROM companies c{WHERE}"
     )))
+    .bind(&like)
+    .bind(status)
+    .fetch_one(pool)
+    .await?;
+    let rows = sqlx::query_as(AssertSqlSafe(format!(
+        "{SELECT_COMPANY}{WHERE} ORDER BY lower(c.name), c.id LIMIT $3 OFFSET $4"
+    )))
+    .bind(&like)
+    .bind(status)
+    .bind(i64::from(page_size))
+    .bind(i64::from(page.saturating_sub(1)) * i64::from(page_size))
     .fetch_all(pool)
-    .await
+    .await?;
+    let summary = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM companies) AS companies,
+                (SELECT count(*) FROM jobs WHERE closed_at IS NULL AND in_scope) AS open_jobs,
+                (SELECT count(*) FROM companies WHERE last_status = 'error') AS errors,
+                (SELECT count(*) FROM companies WHERE last_status IS NULL) AS pending",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(CompanyPage {
+        rows,
+        total,
+        summary,
+    })
 }
 
 pub async fn get_company(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<CompanyRow>> {

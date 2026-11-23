@@ -5,6 +5,7 @@
 //! (`ingest`), adapters read each platform's public job board (`sources`),
 //! and the API only ever reads the stored jobs (`store`).
 
+pub mod discover;
 pub mod http;
 pub mod ingest;
 pub mod model;

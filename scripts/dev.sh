@@ -40,6 +40,8 @@ Code
 Data
   psql             Open a Postgres shell
   redis            Open a Redis shell
+  discover [file]  Show company discovery progress; with a file of job-board
+                   links (one per line), queue them to be checked and added
   reset-db         Delete ALL database and volume data (asks first)
 EOF
 }
@@ -200,6 +202,38 @@ cmd_check() {
   ok "All checks passed"
 }
 
+cmd_discover() {
+  api_health >/dev/null || fail "The API isn't running at $API_URL. Start it with ./scripts/dev.sh up or ./scripts/dev.sh dev, then try again."
+  if [ -n "${1:-}" ]; then
+    [ -f "$1" ] || fail "No such file: $1"
+    say "Queueing job-board links from $1"
+  fi
+  # Node is already required for the frontend; it reads the file and calls the API.
+  API_URL="$API_URL" node - "${1:-}" <<'JS'
+const fs = require("node:fs");
+const [file] = process.argv.slice(2);
+const api = process.env.API_URL;
+(async () => {
+  if (file) {
+    const urls = fs.readFileSync(file, "utf8").split(/[\s,]+/).filter(Boolean);
+    const res = await fetch(`${api}/discovery/candidates`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message ?? `HTTP ${res.status}`);
+    console.log(`Queued ${body.queued} new boards (${body.recognized} recognized, ${body.unrecognized.length} not job boards).`);
+    for (const u of body.unrecognized.slice(0, 10)) console.log(`  not a board: ${u}`);
+  }
+  const s = await (await fetch(`${api}/discovery`)).json();
+  const index = s.index_pages_total == null ? `${s.index_pages_read} pages read` : `${s.index_pages_read} of ${s.index_pages_total} pages read`;
+  console.log(`Discovery: ${s.pending} waiting to check, ${s.added} added (${s.added_last_week} this week), ${s.rejected} not added.`);
+  console.log(`Common Crawl: ${index}.`);
+})().catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+JS
+}
+
 cmd_fmt() {
   (cd backend && cargo fmt)
   ok "Rust code formatted"
@@ -239,6 +273,7 @@ case "$command" in
   typegen)  cmd_typegen ;;
   check)    cmd_check ;;
   fmt)      cmd_fmt ;;
+  discover) cmd_discover "$@" ;;
   psql)     cmd_psql ;;
   redis)    cmd_redis ;;
   reset-db) cmd_reset_db ;;

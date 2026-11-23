@@ -29,5 +29,7 @@ export type Seniority = Schemas["Seniority"];
 export type Platform = Schemas["Platform"];
 export type CompanySource = Schemas["CompanySource"];
 export type AddCompany = Schemas["AddCompany"];
+export type CompaniesPage = Schemas["CompaniesPage"];
+export type DiscoveryStats = Schemas["DiscoveryStats"];
 export type Salary = Schemas["Salary"];
 export type JobsQuery = NonNullable<paths["/jobs"]["get"]["parameters"]["query"]>;

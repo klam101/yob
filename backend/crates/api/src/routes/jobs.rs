@@ -20,6 +20,7 @@ use crate::{error::ApiError, state::AppState};
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list_jobs))
+        .routes(routes!(search_companies))
         .routes(routes!(get_job))
 }
 
@@ -163,17 +164,28 @@ pub struct JobDetail {
     pub keywords: Option<KeywordGap>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FacetCount {
     pub value: String,
     pub count: u32,
 }
 
-/// Options for filter menus, counted over all open jobs.
-#[derive(Debug, Serialize, ToSchema)]
+/// Options for filter menus, counted over all open jobs (refreshed every few
+/// minutes).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Facets {
+    /// The biggest departments.
     pub departments: Vec<FacetCount>,
+    /// The companies with the most jobs, plus any selected in `company`.
+    /// Search the rest with `GET /jobs/companies`.
     pub companies: Vec<FacetCount>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct CompanySearch {
+    /// Part of a company name.
+    pub q: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -250,11 +262,24 @@ async fn list_jobs(
     let page = query.page.unwrap_or(1).clamp(1, 10_000);
 
     let result = store::list_jobs(&state.db, &filter, sort, page, page_size).await?;
-    let (departments, companies) = store::facets(&state.db).await?;
-    let facet = |c: store::Count| FacetCount {
-        value: c.value,
-        count: c.count as u32,
-    };
+    let mut facets = cached_facets(&state).await?;
+
+    // Keep selected companies in the menu even when they're not in the top list.
+    let missing: Vec<String> = filter
+        .company
+        .iter()
+        .filter(|name| {
+            !facets
+                .companies
+                .iter()
+                .any(|c| c.value.to_lowercase() == **name)
+        })
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        let extra = store::company_counts(&state.db, None, &missing, missing.len() as i64).await?;
+        facets.companies.extend(extra.into_iter().map(facet));
+    }
 
     Ok(Json(JobsPage {
         items: result.rows.into_iter().map(summary).collect(),
@@ -262,11 +287,66 @@ async fn list_jobs(
         company_count: result.company_count as u32,
         page,
         page_size,
-        facets: Facets {
-            departments: departments.into_iter().map(facet).collect(),
-            companies: companies.into_iter().map(facet).collect(),
-        },
+        facets,
     }))
+}
+
+/// Companies whose name contains `q`, with open-job counts, for the Company
+/// filter's search box. At most 30, biggest first.
+#[utoipa::path(
+    get,
+    path = "/jobs/companies",
+    tag = "jobs",
+    params(CompanySearch),
+    responses((status = OK, body = Vec<FacetCount>))
+)]
+async fn search_companies(
+    State(state): State<AppState>,
+    Query(query): Query<CompanySearch>,
+) -> Result<Json<Vec<FacetCount>>, ApiError> {
+    let q = query.q.trim();
+    if q.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    let rows = store::company_counts(&state.db, Some(q), &[], 30).await?;
+    Ok(Json(rows.into_iter().map(facet).collect()))
+}
+
+fn facet(c: store::Count) -> FacetCount {
+    FacetCount {
+        value: c.value,
+        count: c.count.max(0) as u32,
+    }
+}
+
+const FACETS_KEY: &str = "cache:facets:v1";
+const FACETS_TTL_SECS: u64 = 300;
+
+/// Facets take a few hundred milliseconds to count over every open job and
+/// are the same for every request, so they're cached in Redis for five
+/// minutes. Without Redis they're simply computed each time.
+async fn cached_facets(state: &AppState) -> Result<Facets, ApiError> {
+    use deadpool_redis::redis::AsyncCommands;
+
+    let mut conn = state.redis.get().await.ok();
+    if let Some(conn) = conn.as_mut()
+        && let Ok(Some(json)) = conn.get::<_, Option<String>>(FACETS_KEY).await
+        && let Ok(facets) = serde_json::from_str::<Facets>(&json)
+    {
+        return Ok(facets);
+    }
+
+    let (departments, companies) = store::facets(&state.db).await?;
+    let facets = Facets {
+        departments: departments.into_iter().map(facet).collect(),
+        companies: companies.into_iter().map(facet).collect(),
+    };
+    if let Some(conn) = conn.as_mut()
+        && let Ok(json) = serde_json::to_string(&facets)
+    {
+        let _: Result<(), _> = conn.set_ex(FACETS_KEY, json, FACETS_TTL_SECS).await;
+    }
+    Ok(facets)
 }
 
 /// One job with its full description. Closed jobs are still returned, with

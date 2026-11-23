@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every tracked company with its open-job count and check status. */
+        /** Tracked companies, by name, with open-job counts and check status. */
         get: operations["list_companies"];
         put?: never;
         /**
@@ -36,6 +36,46 @@ export interface paths {
         put?: never;
         /** Asks the worker to check this company now (within about 15 seconds). */
         post: operations["check_company"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How discovery is going: candidates found, verified and rejected, and how
+         *     far the Common Crawl scan has got.
+         */
+        get: operations["discovery_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/discovery/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queues many job-board URLs at once. The worker verifies them in the
+         *     background and adds the ones with open jobs.
+         */
+        post: operations["add_candidates"];
         delete?: never;
         options?: never;
         head?: never;
@@ -76,6 +116,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Companies whose name contains `q`, with open-job counts, for the Company
+         *     filter's search box. At most 30, biggest first.
+         */
+        get: operations["search_companies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{id}": {
         parameters: {
             query?: never;
@@ -100,8 +160,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddCandidates: {
+            /** @description Job-board URLs, e.g. from a list of companies you're interested in. */
+            urls: string[];
+        };
         AddCompany: {
-            /** @description Display name; defaults to one derived from the board. */
+            /** @description Display name; defaults to the name on the board. */
             name?: string | null;
             /**
              * @description A public job-board URL, e.g. https://boards.greenhouse.io/stripe,
@@ -112,6 +176,33 @@ export interface components {
         /** @description Error body returned by every endpoint on failure. */
         ApiError: {
             message: string;
+        };
+        CandidatesAdded: {
+            /**
+             * Format: int32
+             * @description New boards queued for verification.
+             */
+            queued: number;
+            /**
+             * Format: int32
+             * @description URLs recognized as job boards (some may already be tracked or queued).
+             */
+            recognized: number;
+            /** @description URLs that aren't Greenhouse, Lever or Ashby boards. */
+            unrecognized: string[];
+        };
+        CompaniesPage: {
+            items: components["schemas"]["CompanySource"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            page_size: number;
+            summary: components["schemas"]["SourcesSummary"];
+            /**
+             * Format: int32
+             * @description Companies matching the search and status, across all pages.
+             */
+            total: number;
         };
         Company: {
             /** @description The company's public job board. */
@@ -135,9 +226,44 @@ export interface components {
             name: string;
             /** Format: date-time */
             next_check_at: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Open jobs in the US or remote.
+             */
             open_jobs: number;
             platform: components["schemas"]["Platform"];
+        };
+        /** @description Progress of company discovery. */
+        DiscoveryStats: {
+            /**
+             * Format: int32
+             * @description Boards verified and now tracked.
+             */
+            added: number;
+            /** Format: int32 */
+            added_last_week: number;
+            /**
+             * Format: int32
+             * @description Common Crawl index pages read so far.
+             */
+            index_pages_read: number;
+            /**
+             * Format: int32
+             * @description Absent until the size of every index is known.
+             */
+            index_pages_total?: number | null;
+            /** Format: date-time */
+            last_index_read_at?: string | null;
+            /**
+             * Format: int32
+             * @description Boards found but not verified yet.
+             */
+            pending: number;
+            /**
+             * Format: int32
+             * @description Boards that were missing or had no open jobs (retried after 30 days).
+             */
+            rejected: number;
         };
         /** @enum {string} */
         EmploymentType: "full_time" | "part_time" | "contract" | "internship";
@@ -146,9 +272,17 @@ export interface components {
             count: number;
             value: string;
         };
-        /** @description Options for filter menus, counted over all open jobs. */
+        /**
+         * @description Options for filter menus, counted over all open jobs (refreshed every few
+         *     minutes).
+         */
         Facets: {
+            /**
+             * @description The companies with the most jobs, plus any selected in `company`.
+             *     Search the rest with `GET /jobs/companies`.
+             */
             companies: components["schemas"]["FacetCount"][];
+            /** @description The biggest departments. */
             departments: components["schemas"]["FacetCount"][];
         };
         Health: {
@@ -276,6 +410,23 @@ export interface components {
         SalaryPeriod: "year" | "hour";
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
+        /** @description Totals over every tracked company. */
+        SourcesSummary: {
+            /** Format: int32 */
+            companies: number;
+            /**
+             * Format: int32
+             * @description Companies whose last check failed.
+             */
+            errors: number;
+            /** Format: int32 */
+            open_jobs: number;
+            /**
+             * Format: int32
+             * @description Companies not checked yet.
+             */
+            pending: number;
+        };
         /** @enum {string} */
         Workplace: "onsite" | "hybrid" | "remote";
     };
@@ -289,7 +440,15 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_companies: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Matches company name or board token. */
+                q?: string;
+                status?: "all" | "errors" | "pending";
+                /** @description 1-based page number. */
+                page?: number;
+                /** @description Defaults to 50, at most 200. */
+                page_size?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -301,7 +460,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CompanySource"][];
+                    "application/json": components["schemas"]["CompaniesPage"];
                 };
             };
         };
@@ -395,6 +554,57 @@ export interface operations {
             };
         };
     };
+    discovery_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryStats"];
+                };
+            };
+        };
+    };
+    add_candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCandidates"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidatesAdded"];
+                };
+            };
+            /** @description More than 10,000 URLs */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -472,6 +682,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    search_companies: {
+        parameters: {
+            query: {
+                /** @description Part of a company name. */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacetCount"][];
                 };
             };
         };

@@ -107,11 +107,10 @@ fn normalize_job(j: Job) -> NormalizedJob {
         _ => normalize::infer_employment(&j.title, None),
     };
 
-    let salary = j
-        .compensation
-        .as_ref()
-        .and_then(salary_from_components)
-        .or_else(|| normalize::parse_salary(&description_text));
+    let (salary, salary_from_text) = normalize::salary_or_text(
+        j.compensation.as_ref().and_then(salary_from_components),
+        &description_text,
+    );
 
     NormalizedJob {
         source_job_id: j.id,
@@ -119,6 +118,7 @@ fn normalize_job(j: Job) -> NormalizedJob {
         employment_type,
         seniority: normalize::infer_seniority(&j.title),
         salary,
+        salary_from_text,
         content_hash: normalize::content_hash(&j.title, &locations, &description_text),
         posted_at: parse_time(j.published_at.as_deref()).unwrap_or_else(Utc::now),
         apply_url: j.job_url.or(j.apply_url).unwrap_or_default(),

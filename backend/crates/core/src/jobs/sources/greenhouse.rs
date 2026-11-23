@@ -76,13 +76,15 @@ fn normalize_job(j: Job) -> NormalizedJob {
     let posted_at = parse_time(j.first_published.as_deref())
         .or_else(|| parse_time(j.updated_at.as_deref()))
         .unwrap_or_else(Utc::now);
+    let salary = normalize::parse_salary(&description_text);
 
     NormalizedJob {
         source_job_id: j.id.to_string(),
         workplace: normalize::infer_workplace(&j.title, &locations, &description_text),
         employment_type: normalize::infer_employment(&j.title, None),
         seniority: normalize::infer_seniority(&j.title),
-        salary: normalize::parse_salary(&description_text),
+        salary_from_text: salary.is_some(),
+        salary,
         content_hash: normalize::content_hash(&j.title, &locations, &description_text),
         title: j.title.trim().to_owned(),
         department,

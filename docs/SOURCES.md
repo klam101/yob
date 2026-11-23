@@ -71,7 +71,8 @@ Adapters are per platform, so coverage grows by finding more company boards.
 
 - **Common Crawl index** (`index.commoncrawl.org`): search crawled URLs on ATS hosts (`jobs.lever.co/*`, `jobs.ashbyhq.com/*`, `boards.greenhouse.io/*`, `*.myworkdayjobs.com` and so on) and extract board names. One crawl's first 5,000 Lever URLs yielded 267 distinct boards. The service is often overloaded (504s), so discovery runs slowly in the background, resumes where it stopped, and retries.
 - **Verification:** each candidate board is probed once through the rate-limited fetcher and added as a company only if it has open jobs. Rejected candidates are retried after 30 days.
-- **Manual:** paste a board link on Settings → Job sources.
+- **Manual:** paste a board link on Settings → Job sources, paste many under Company discovery, or run `./scripts/dev.sh discover <file>`.
+- **Status:** live for Greenhouse, Lever and Ashby (Common Crawl, links in postings, manual). The platforms in Tier 1 still marked "verified" get discovery as their adapters are added. No ATS host publishes a sitemap of boards (checked November 2026).
 
 ## Cross-cutting
 

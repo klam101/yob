@@ -10,14 +10,18 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use super::{
+    discover,
     http::{FetchError, Fetcher},
     model::{NormalizedJob, Platform},
-    sources,
+    normalize, sources,
 };
 
 /// Jobs missing from this many checks in a row are closed. One bad response
 /// from a job board can't wipe out a company's jobs.
 const MISSES_BEFORE_CLOSE: i32 = 2;
+
+/// Jobs written per INSERT statement.
+const UPSERT_BATCH: usize = 500;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DueCompany {
@@ -104,7 +108,10 @@ async fn check_company(
     let token = &company.board_token;
 
     let open: HashSet<String> = sqlx::query_scalar(
-        "SELECT source_job_id FROM jobs WHERE company_id = $1 AND closed_at IS NULL",
+        // In-scope jobs missing a description (they were out of scope under
+        // older rules) count as new, so their details are fetched again.
+        "SELECT source_job_id FROM jobs WHERE company_id = $1 AND closed_at IS NULL
+           AND NOT (in_scope AND description_text IS NULL)",
     )
     .bind(company.id)
     .fetch_all(pool)
@@ -112,64 +119,117 @@ async fn check_company(
     .into_iter()
     .collect();
 
-    // Cheap path (Greenhouse): list ids first, and only download full
-    // postings when something new appeared.
-    if let Some(ids) = sources::fetch_ids(fetcher, platform, token).await?
-        && ids.is_subset(&open)
-    {
-        let ids: Vec<String> = ids.into_iter().collect();
-        let mut tx = pool.begin().await?;
-        mark_seen(&mut tx, company.id, &ids).await?;
-        let closed = close_missing(&mut tx, company.id, &ids).await?;
-        tx.commit().await?;
-        return Ok(CheckStats {
-            seen: ids.len() as i32,
-            new: 0,
-            closed,
-        });
-    }
-
-    let mut jobs = sources::fetch_all(fetcher, platform, token).await?;
+    // Full listings carry every job; id listings need details for new ids
+    // only, so a board with nothing new costs one light request.
+    let (seen_ids, mut jobs): (Vec<String>, Vec<NormalizedJob>) =
+        match sources::list(fetcher, platform, token).await? {
+            sources::Listing::Full(jobs) => {
+                (jobs.iter().map(|j| j.source_job_id.clone()).collect(), jobs)
+            }
+            sources::Listing::Ids(ids) => {
+                let new: HashSet<String> = ids.difference(&open).cloned().collect();
+                let mut jobs = sources::details(fetcher, platform, token, &new).await?;
+                jobs.retain(|j| ids.contains(&j.source_job_id));
+                (ids.into_iter().collect(), jobs)
+            }
+        };
     let mut unique = HashSet::new();
     jobs.retain(|j| !j.source_job_id.is_empty() && unique.insert(j.source_job_id.clone()));
 
-    let mut tx = pool.begin().await?;
-    let mut new = 0;
-    for job in &jobs {
-        if upsert_job(&mut tx, company.id, job).await? {
-            new += 1;
+    // Board links inside new postings are leads for discovery.
+    let mut leads: Vec<(Platform, String)> = Vec::new();
+    for job in jobs.iter().filter(|j| !open.contains(&j.source_job_id)) {
+        let text = format!("{} {}", job.apply_url, job.description_html);
+        for lead in sources::board_links(&text) {
+            let own = lead.0 == platform && lead.1.eq_ignore_ascii_case(token);
+            if !own && !leads.contains(&lead) {
+                leads.push(lead);
+            }
         }
     }
-    let ids: Vec<String> = jobs.iter().map(|j| j.source_job_id.clone()).collect();
-    let closed = close_missing(&mut tx, company.id, &ids).await?;
+
+    let mut tx = pool.begin().await?;
+    let mut new = 0;
+    for chunk in jobs.chunks(UPSERT_BATCH) {
+        new += upsert_jobs(&mut tx, company.id, chunk).await?;
+    }
+    mark_seen(&mut tx, company.id, &seen_ids).await?;
+    let closed = close_missing(&mut tx, company.id, &seen_ids).await?;
     tx.commit().await?;
 
+    if !leads.is_empty()
+        && let Err(e) = discover::add_candidates(pool, &leads, "link").await
+    {
+        tracing::warn!(error = %e, "couldn't save discovered boards");
+    }
+
     Ok(CheckStats {
-        seen: jobs.len() as i32,
+        seen: seen_ids.len() as i32,
         new,
         closed,
     })
 }
 
-/// Inserts a new job or refreshes a known one. Returns true when inserted.
+/// One job as a JSON object for [`upsert_jobs`]. Out-of-scope jobs are kept
+/// without their description: enough to recognize them on the next check.
+fn job_json(job: &NormalizedJob) -> serde_json::Value {
+    let salary = job.salary.as_ref();
+    let in_scope = normalize::us_scope(&job.locations);
+    serde_json::json!({
+        "source_job_id": job.source_job_id,
+        "title": job.title,
+        "department": job.department,
+        "locations": job.locations,
+        "workplace": job.workplace.as_str(),
+        "employment_type": job.employment_type.as_str(),
+        "seniority": job.seniority.as_str(),
+        "salary_min": salary.map(|s| s.min),
+        "salary_max": salary.map(|s| s.max),
+        "salary_currency": salary.map(|s| s.currency.clone()),
+        "salary_period": salary.map(|s| s.period.as_str()),
+        "salary_source": salary.map(|_| if job.salary_from_text { "text" } else { "structured" }),
+        "posted_at": job.posted_at,
+        "apply_url": job.apply_url,
+        "description_html": in_scope.then_some(&job.description_html),
+        "description_text": in_scope.then_some(&job.description_text),
+        "content_hash": job.content_hash,
+        "in_scope": in_scope,
+    })
+}
+
+/// Inserts new jobs and refreshes changed ones in one statement. Returns how
+/// many were inserted. Unchanged open jobs are skipped (`mark_seen` covers
+/// them), so a re-check doesn't rewrite every description.
+///
 /// A new job whose content matches a closed job at the same company counts
 /// as a repost; a closed job that reappears under the same id is reopened.
-async fn upsert_job(
+async fn upsert_jobs(
     tx: &mut Transaction<'_, Postgres>,
     company_id: Uuid,
-    job: &NormalizedJob,
-) -> sqlx::Result<bool> {
-    let salary = job.salary.as_ref();
-    sqlx::query_scalar(
+    jobs: &[NormalizedJob],
+) -> sqlx::Result<i32> {
+    let batch = serde_json::Value::Array(jobs.iter().map(job_json).collect()).to_string();
+    let inserted: Vec<bool> = sqlx::query_scalar(
         "INSERT INTO jobs (
              company_id, source_job_id, title, department, locations, workplace,
              employment_type, seniority, salary_min, salary_max, salary_currency,
-             salary_period, posted_at, apply_url, description_html, description_text,
-             content_hash, repost_count
-         ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-             COALESCE((SELECT max(repost_count) + 1 FROM jobs
-                       WHERE company_id = $1 AND content_hash = $17 AND closed_at IS NOT NULL), 0)
+             salary_period, salary_source, posted_at, apply_url, description_html,
+             description_text, content_hash, in_scope, normalize_version, repost_count
+         )
+         SELECT $1, x.source_job_id, x.title, x.department, x.locations, x.workplace,
+                x.employment_type, x.seniority, x.salary_min, x.salary_max, x.salary_currency,
+                x.salary_period, x.salary_source, x.posted_at, x.apply_url, x.description_html,
+                x.description_text, x.content_hash, x.in_scope, $3,
+                COALESCE((SELECT max(p.repost_count) + 1 FROM jobs p
+                          WHERE p.company_id = $1 AND p.content_hash = x.content_hash
+                            AND p.closed_at IS NOT NULL), 0)
+         FROM jsonb_to_recordset($2::jsonb) AS x(
+             source_job_id text, title text, department text, locations text[],
+             workplace text, employment_type text, seniority text, salary_min integer,
+             salary_max integer, salary_currency text, salary_period text,
+             salary_source text, posted_at timestamptz, apply_url text,
+             description_html text, description_text text, content_hash text,
+             in_scope boolean
          )
          ON CONFLICT (company_id, source_job_id) DO UPDATE SET
              title = EXCLUDED.title,
@@ -182,37 +242,39 @@ async fn upsert_job(
              salary_max = EXCLUDED.salary_max,
              salary_currency = EXCLUDED.salary_currency,
              salary_period = EXCLUDED.salary_period,
+             salary_source = EXCLUDED.salary_source,
              apply_url = EXCLUDED.apply_url,
              description_html = EXCLUDED.description_html,
              description_text = EXCLUDED.description_text,
              content_hash = EXCLUDED.content_hash,
+             in_scope = EXCLUDED.in_scope,
+             normalize_version = EXCLUDED.normalize_version,
              last_seen_at = now(),
              missed_checks = 0,
              repost_count = jobs.repost_count + CASE WHEN jobs.closed_at IS NULL THEN 0 ELSE 1 END,
              closed_at = NULL
+         WHERE jobs.closed_at IS NOT NULL
+            OR (jobs.description_text IS NULL AND EXCLUDED.description_text IS NOT NULL)
+            OR jobs.content_hash IS DISTINCT FROM EXCLUDED.content_hash
+            OR jobs.normalize_version IS DISTINCT FROM EXCLUDED.normalize_version
+            OR (jobs.title, jobs.department, jobs.locations, jobs.workplace, jobs.employment_type,
+                jobs.salary_min, jobs.salary_max, jobs.salary_currency, jobs.apply_url)
+               IS DISTINCT FROM
+               (EXCLUDED.title, EXCLUDED.department, EXCLUDED.locations, EXCLUDED.workplace,
+                EXCLUDED.employment_type, EXCLUDED.salary_min, EXCLUDED.salary_max,
+                EXCLUDED.salary_currency, EXCLUDED.apply_url)
          RETURNING (xmax = 0)",
     )
     .bind(company_id)
-    .bind(&job.source_job_id)
-    .bind(&job.title)
-    .bind(&job.department)
-    .bind(&job.locations)
-    .bind(job.workplace.as_str())
-    .bind(job.employment_type.as_str())
-    .bind(job.seniority.as_str())
-    .bind(salary.map(|s| s.min as i32))
-    .bind(salary.map(|s| s.max as i32))
-    .bind(salary.map(|s| s.currency.clone()))
-    .bind(salary.map(|s| s.period.as_str()))
-    .bind(job.posted_at)
-    .bind(&job.apply_url)
-    .bind(&job.description_html)
-    .bind(&job.description_text)
-    .bind(&job.content_hash)
-    .fetch_one(&mut **tx)
-    .await
+    .bind(batch)
+    .bind(normalize::NORMALIZE_VERSION)
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(inserted.into_iter().filter(|&new| new).count() as i32)
 }
 
+/// Records that open jobs are still listed. Rows touched in the last hour
+/// are skipped, so frequent checks don't rewrite the whole table.
 async fn mark_seen(
     tx: &mut Transaction<'_, Postgres>,
     company_id: Uuid,
@@ -220,7 +282,8 @@ async fn mark_seen(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "UPDATE jobs SET last_seen_at = now(), missed_checks = 0
-         WHERE company_id = $1 AND closed_at IS NULL AND source_job_id = ANY($2)",
+         WHERE company_id = $1 AND closed_at IS NULL AND source_job_id = ANY($2)
+           AND (missed_checks > 0 OR last_seen_at < now() - interval '1 hour')",
     )
     .bind(company_id)
     .bind(ids)
@@ -373,8 +436,83 @@ pub async fn probe_board(
     platform: Platform,
     token: &str,
 ) -> Result<usize, FetchError> {
-    match sources::fetch_ids(fetcher, platform, token).await? {
-        Some(ids) => Ok(ids.len()),
-        None => Ok(sources::fetch_all(fetcher, platform, token).await?.len()),
+    Ok(sources::list(fetcher, platform, token).await?.len())
+}
+
+#[derive(sqlx::FromRow)]
+struct StoredJob {
+    id: Uuid,
+    title: String,
+    locations: Vec<String>,
+    description_text: Option<String>,
+    salary_source: Option<String>,
+}
+
+/// Re-derives fields from stored jobs after the rules in `normalize.rs`
+/// change (see [`normalize::NORMALIZE_VERSION`]): seniority, US scope, and
+/// salaries that were parsed from text. Structured salaries are left alone.
+/// Returns how many jobs were updated.
+pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
+    let mut updated = 0;
+    loop {
+        let rows: Vec<StoredJob> = sqlx::query_as(
+            "SELECT id, title, locations, description_text, salary_source FROM jobs
+             WHERE normalize_version < $1 LIMIT 1000",
+        )
+        .bind(normalize::NORMALIZE_VERSION)
+        .fetch_all(pool)
+        .await?;
+        if rows.is_empty() {
+            return Ok(updated);
+        }
+
+        let batch: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                let text = r.description_text.as_deref().unwrap_or("");
+                let in_scope = normalize::us_scope(&r.locations);
+                // Re-parse salaries that came from text, or jobs with none
+                // yet, as long as the text is still stored.
+                let resalary = r.salary_source.as_deref() != Some("structured")
+                    && r.description_text.is_some();
+                let salary = resalary.then(|| normalize::parse_salary(text)).flatten();
+                serde_json::json!({
+                    "id": r.id,
+                    "seniority": normalize::infer_seniority(&r.title).as_str(),
+                    "in_scope": in_scope,
+                    "resalary": resalary,
+                    "salary_min": salary.as_ref().map(|s| s.min),
+                    "salary_max": salary.as_ref().map(|s| s.max),
+                    "salary_currency": salary.as_ref().map(|s| s.currency.clone()),
+                    "salary_period": salary.as_ref().map(|s| s.period.as_str()),
+                    "salary_source": salary.as_ref().map(|_| "text"),
+                })
+            })
+            .collect();
+
+        updated += sqlx::query(
+            "UPDATE jobs j SET
+                 seniority = x.seniority,
+                 in_scope = x.in_scope,
+                 normalize_version = $2,
+                 salary_min = CASE WHEN x.resalary THEN x.salary_min ELSE j.salary_min END,
+                 salary_max = CASE WHEN x.resalary THEN x.salary_max ELSE j.salary_max END,
+                 salary_currency = CASE WHEN x.resalary THEN x.salary_currency ELSE j.salary_currency END,
+                 salary_period = CASE WHEN x.resalary THEN x.salary_period ELSE j.salary_period END,
+                 salary_source = CASE WHEN x.resalary THEN x.salary_source ELSE j.salary_source END,
+                 description_html = CASE WHEN x.in_scope THEN j.description_html END,
+                 description_text = CASE WHEN x.in_scope THEN j.description_text END
+             FROM jsonb_to_recordset($1::jsonb) AS x(
+                 id uuid, seniority text, in_scope boolean, resalary boolean,
+                 salary_min integer, salary_max integer, salary_currency text,
+                 salary_period text, salary_source text
+             )
+             WHERE j.id = x.id",
+        )
+        .bind(serde_json::Value::Array(batch).to_string())
+        .bind(normalize::NORMALIZE_VERSION)
+        .execute(pool)
+        .await?
+        .rows_affected();
     }
 }

@@ -1,41 +1,65 @@
 "use client";
 
-import { ArrowUpRight, RefreshCw, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
-import { type CompanySource, api } from "@/api/client";
+import { ArrowUpRight, ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { type CompaniesPage, type CompanySource, api } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { sourceLabel, timeAgo, timeUntil } from "@/lib/format";
+import { cn } from "cn";
 
-type Filter = "all" | "errors" | "pending";
+type Status = "all" | "errors" | "pending";
+const PAGE_SIZE = 50;
 
-export function SourcesTable({ companies }: { companies: CompanySource[] }) {
-  const router = useRouter();
+/**
+ * Tracked companies, searched and paged on the server (there can be
+ * thousands). Starts from the first page rendered by the server.
+ */
+export function SourcesTable({ initial }: { initial: CompaniesPage }) {
+  const [data, setData] = useState(initial);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [status, setStatus] = useState<Status>("all");
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const [queued, setQueued] = useState<Set<string>>(new Set());
-  const [, startTransition] = useTransition();
+  const first = useRef(true);
 
-  const errors = companies.filter((c) => c.last_status === "error").length;
-  const pending = companies.filter((c) => !c.last_status).length;
+  async function load(q: string, s: Status, p: number) {
+    setLoading(true);
+    const { data } = await api
+      .GET("/companies", { params: { query: { q: q || undefined, status: s, page: p, page_size: PAGE_SIZE } } })
+      .catch(() => ({ data: undefined }));
+    if (data) setData(data);
+    setLoading(false);
+  }
 
-  const rows = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    return companies.filter((c) => {
-      if (filter === "errors" && c.last_status !== "error") return false;
-      if (filter === "pending" && c.last_status) return false;
-      return !s || c.name.toLowerCase().includes(s) || c.board_token.includes(s);
-    });
-  }, [companies, search, filter]);
+  useEffect(() => {
+    // The first page came from the server.
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const timer = setTimeout(() => load(search.trim(), status, page), 200);
+    return () => clearTimeout(timer);
+  }, [search, status, page]);
 
   async function checkNow(id: string) {
     setQueued((q) => new Set(q).add(id));
     await api.POST("/companies/{id}/check", { params: { path: { id } } }).catch(() => {});
-    // The worker picks it up within ~15s; refresh to show the new status.
-    setTimeout(() => startTransition(() => router.refresh()), 20_000);
+    // The worker picks it up within ~15s; reload to show the new status.
+    setTimeout(() => {
+      setQueued((q) => {
+        const next = new Set(q);
+        next.delete(id);
+        return next;
+      });
+      load(search.trim(), status, page);
+    }, 20_000);
   }
+
+  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const { summary } = data;
 
   return (
     <div className="space-y-3">
@@ -45,7 +69,10 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
           <span className="sr-only">Search companies</span>
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Search companies"
             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
@@ -53,17 +80,20 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
         <div className="flex gap-1">
           {(
             [
-              ["all", `All ${companies.length}`],
-              ["errors", `Errors ${errors}`],
-              ["pending", `Not checked ${pending}`],
+              ["all", `All ${summary.companies.toLocaleString()}`],
+              ["errors", `Errors ${summary.errors.toLocaleString()}`],
+              ["pending", `Not checked ${summary.pending.toLocaleString()}`],
             ] as const
           ).map(([value, label]) => (
             <Button
               key={value}
               size="sm"
               shape="pill"
-              variant={filter === value ? "flat" : "ghost"}
-              onClick={() => setFilter(value)}
+              variant={status === value ? "flat" : "ghost"}
+              onClick={() => {
+                setStatus(value);
+                setPage(1);
+              }}
             >
               {label}
             </Button>
@@ -71,7 +101,12 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-border/70">
+      <div
+        className={cn(
+          "overflow-x-auto rounded-2xl border border-border/70 transition-opacity",
+          loading && "opacity-60",
+        )}
+      >
         <table className="w-full min-w-[42rem] text-sm">
           <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
             <tr>
@@ -86,7 +121,7 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
-            {rows.map((c) => (
+            {data.items.map((c) => (
               <tr key={c.id} className="transition-colors hover:bg-muted/40">
                 <td className="px-4 py-2.5">
                   <a
@@ -105,7 +140,7 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums">{c.open_jobs.toLocaleString()}</td>
                 <td className="px-4 py-2.5">
-                  <Status company={c} />
+                  <CheckStatus company={c} />
                 </td>
                 {/* Relative times differ by a few seconds between server and browser. */}
                 <td className="px-4 py-2.5 text-muted-foreground" suppressHydrationWarning>
@@ -123,7 +158,7 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {data.items.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                   No companies match.
@@ -133,11 +168,40 @@ export function SourcesTable({ companies }: { companies: CompanySource[] }) {
           </tbody>
         </table>
       </div>
+
+      {pages > 1 && (
+        <nav aria-label="Company pages" className="flex items-center justify-between gap-2 text-sm">
+          <span className="text-muted-foreground tabular-nums">
+            {((page - 1) * PAGE_SIZE + 1).toLocaleString()}–
+            {Math.min(page * PAGE_SIZE, data.total).toLocaleString()} of {data.total.toLocaleString()}
+          </span>
+          <div className="flex gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Previous page"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Next page"
+              disabled={page >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
 
-function Status({ company: c }: { company: CompanySource }) {
+function CheckStatus({ company: c }: { company: CompanySource }) {
   if (!c.last_status || !c.last_checked_at) {
     return <span className="text-muted-foreground">Not yet</span>;
   }

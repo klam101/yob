@@ -42,15 +42,19 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Goal: virtually every US or remote job from credible sources. No LinkedIn or Indeed scraping.
 
-**Company discovery and scale** (`feature/company-discovery`, next)
-- [ ] Keep only US and remote jobs at import (out-of-scope jobs stored as small rows without descriptions)
-- [ ] Re-normalize stored jobs when parsing rules change (seniority, scope, text-parsed salary), without refetching
-- [ ] Faster imports: batch inserts instead of one statement per job
-- [ ] Discover Greenhouse, Lever and Ashby boards from Common Crawl (slow, resumable, retrying) and verify them before adding
-- [ ] Discover boards from links inside job descriptions
-- [ ] Feed at 200k+ jobs: trigram index for keyword search, cached facets, searchable Company filter
-- [ ] Job sources page: discovery stats and a paginated company table
-- [ ] Company names for Lever and Ashby boards (their APIs don't return one)
+**Company discovery and scale** (on `feature/job-ingestion`)
+- [x] Keep only US and remote jobs at import (out-of-scope jobs stored as small rows without descriptions)
+- [x] Re-normalize stored jobs when parsing rules change (seniority, scope, text-parsed salary), without refetching
+- [x] Faster imports: batch inserts instead of one statement per job; unchanged jobs aren't rewritten
+- [x] Discover Greenhouse, Lever and Ashby boards from Common Crawl (slow, resumable, retrying) and verify them before adding
+- [x] Discover boards from links inside job descriptions
+- [x] Queue many board links at once (Settings, or `./scripts/dev.sh discover <file>`)
+- [x] Feed at scale: trigram index for title search, cached facets, searchable Company filter
+- [x] Job sources page: discovery stats and a paginated company table
+- [x] Company names for Lever and Ashby boards, read from the board page title
+- [ ] Confirm a full Common Crawl pass once the index is answering (it returned 504s through November 20, 2026)
+- [ ] Measure `/jobs` at 200k+ jobs (release build) and add indexes where `EXPLAIN` shows scans
+- [ ] Tune the US scope lists from what lands out of scope (`SELECT locations … WHERE NOT in_scope`)
 
 **More ATS platforms**
 - [ ] Workday (POST to the careers page's JSON endpoint)
