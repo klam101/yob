@@ -4,8 +4,6 @@
 //! description (HTML-escaped) and departments for every job in one request.
 //! Greenhouse doesn't say remote/hybrid or full/part time, so those are inferred.
 
-use std::collections::HashSet;
-
 use chrono::Utc;
 use serde::Deserialize;
 
@@ -48,9 +46,10 @@ fn url(token: &str, content: bool) -> String {
     }
 }
 
-pub async fn fetch_ids(fetcher: &Fetcher, token: &str) -> Result<HashSet<String>, FetchError> {
+/// The light list as stubs: titles and locations, no descriptions.
+pub async fn fetch_list(fetcher: &Fetcher, token: &str) -> Result<Vec<NormalizedJob>, FetchError> {
     let board: Board = fetcher.get_json(&url(token, false)).await?;
-    Ok(board.jobs.into_iter().map(|j| j.id.to_string()).collect())
+    Ok(parse(board))
 }
 
 pub async fn fetch_all(fetcher: &Fetcher, token: &str) -> Result<Vec<NormalizedJob>, FetchError> {

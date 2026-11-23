@@ -7,7 +7,7 @@ import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-/** Adds a company from its Greenhouse, Lever or Ashby job-board link. */
+/** Adds a company from its job-board link on any supported platform. */
 export function AddCompanyForm() {
   const router = useRouter();
   const [url, setUrl] = useState("");
@@ -62,8 +62,9 @@ export function AddCompanyForm() {
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Works with Greenhouse (boards.greenhouse.io/…), Lever (jobs.lever.co/…) and Ashby
-        (jobs.ashbyhq.com/…) job boards. Find the link on a company&apos;s careers page.
+        Works with Greenhouse, Lever, Ashby, Workday (…myworkdayjobs.com/…), SmartRecruiters,
+        Workable, Recruitee and BambooHR job boards. Find the link on a company&apos;s careers
+        page.
       </p>
       {message && (
         <p

@@ -1,5 +1,5 @@
 import type { JobSummary, MatchLabel, Salary } from "@/api/client";
-import { EMPLOYMENT, SENIORITY, WORKPLACE, labelOf } from "./filters";
+import { EMPLOYMENT, SENIORITY, SOURCE, WORKPLACE, labelOf } from "./filters";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -55,7 +55,8 @@ export function formatSalary(s: Salary): string {
 export const workplaceLabel = (v: string) => labelOf(WORKPLACE, v) ?? v;
 export const employmentLabel = (v: string) => labelOf(EMPLOYMENT, v) ?? v;
 export const seniorityLabel = (v: string) => labelOf(SENIORITY, v) ?? v;
-export const sourceLabel = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
+export const sourceLabel = (v: string) =>
+  labelOf(SOURCE, v) ?? v.charAt(0).toUpperCase() + v.slice(1);
 
 export const MATCH_LABEL: Record<MatchLabel, string> = {
   strong: "Strong match",

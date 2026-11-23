@@ -35,7 +35,16 @@ macro_rules! text_enum {
 
 text_enum!(
     /// The hiring platform a company's job board runs on.
-    Platform { Greenhouse => "greenhouse", Lever => "lever", Ashby => "ashby" }
+    Platform {
+        Greenhouse => "greenhouse",
+        Lever => "lever",
+        Ashby => "ashby",
+        Workday => "workday",
+        Smartrecruiters => "smartrecruiters",
+        Workable => "workable",
+        Recruitee => "recruitee",
+        Bamboohr => "bamboohr",
+    }
 );
 text_enum!(Workplace { Onsite => "onsite", Hybrid => "hybrid", Remote => "remote" });
 text_enum!(EmploymentType {

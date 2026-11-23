@@ -52,14 +52,18 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Feed at scale: trigram index for title search, cached facets, searchable Company filter
 - [x] Job sources page: discovery stats and a paginated company table
 - [x] Company names for Lever and Ashby boards, read from the board page title
-- [ ] Confirm a full Common Crawl pass once the index is answering (it returned 504s through November 20, 2026)
+- [ ] Confirm a full Common Crawl pass once the index is answering. On November 20, 2026 it answered 3 pages (1,291 Greenhouse candidates, 929 added as companies), then returned 504s through November 22
 - [ ] Measure `/jobs` at 200k+ jobs (release build) and add indexes where `EXPLAIN` shows scans
 - [ ] Tune the US scope lists from what lands out of scope (`SELECT locations … WHERE NOT in_scope`)
 
 **More ATS platforms**
-- [ ] Workday (POST to the careers page's JSON endpoint)
-- [ ] SmartRecruiters, Workable, Recruitee, BambooHR
-- [ ] Discovery for each new platform
+- [x] Workday (POST to the careers page's JSON endpoint, detail per new US job)
+- [x] SmartRecruiters, Workable, Recruitee, BambooHR
+- [x] Discovery for each new platform (Common Crawl patterns, links in postings, pasted links)
+- [x] Worker check slots: a slow board (large Workday tenant) no longer holds up other checks
+- [x] Salaries written as "187,500 USD – 364,000 USD" (Workday)
+- [ ] Workday tenants that stop listing at 2,000 jobs (NVIDIA, Target): split the listing by location facets
+- [ ] Find more Workday tenants (no public directory; Common Crawl `*.myworkdayjobs.com` is the main hope)
 - [ ] Later: Breezy, JazzHR, Personio, Teamtailor, Jobvite, iCIMS, SuccessFactors, Oracle, Eightfold
 
 **Job board APIs**
@@ -116,7 +120,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Log the application in the tracker on submit
 
 ### Later
-- [ ] Adapters for Workday, Eightfold, iCIMS, SuccessFactors, Oracle and SmartRecruiters
+- [ ] Adapters for Eightfold, iCIMS, SuccessFactors and Oracle
 - [ ] Company data: industry, size, funding stage, founding year
 - [ ] Sponsorship likelihood from public H-1B filing data
 

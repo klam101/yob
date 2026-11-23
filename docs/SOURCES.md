@@ -18,11 +18,11 @@ Structured, direct employer listings. One adapter per platform covers every comp
 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs` (light list; `?content=true` adds descriptions) | live |
 | Lever | `api.lever.co/v0/postings/{company}?mode=json` (rate-limits quickly) | live |
 | Ashby | `api.ashbyhq.com/posting-api/job-board/{name}?includeCompensation=true` | live |
-| Workday | POST `{tenant}.wd{n}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs` (the JSON the careers page loads); big enterprises | verified |
-| SmartRecruiters | `api.smartrecruiters.com/v1/companies/{id}/postings` (official public API) | verified |
-| Workable | `apply.workable.com/api/v1/widget/accounts/{account}` (public widget API); many small companies | verified |
-| Recruitee | `{company}.recruitee.com/api/offers/` (public careers API) | verified |
-| BambooHR | `{company}.bamboohr.com/careers/list` (careers page JSON); many small companies | verified |
+| Workday | POST `{tenant}.wd{n}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs` (the JSON the careers page loads), then one detail request per new US job; big enterprises. Some tenants (NVIDIA, Target) list at most 2,000 jobs | live |
+| SmartRecruiters | `api.smartrecruiters.com/v1/companies/{id}/postings` (official public API), detail per new US job | live |
+| Workable | `apply.workable.com/api/v1/widget/accounts/{account}?details=true` (public widget API); many small companies | live |
+| Recruitee | `{company}.recruitee.com/api/offers/` (public careers API) | live |
+| BambooHR | `{company}.bamboohr.com/careers/list`, then `/careers/{id}/detail` (careers page JSON); many small companies | live |
 | Breezy HR, JazzHR, Personio, Teamtailor, Jobvite, Pinpoint, Rippling | Public careers feeds; endpoints confirmed one at a time | planned |
 | iCIMS, SuccessFactors, Oracle (Taleo), Eightfold, Dayforce, UKG | The JSON or HTML their careers pages load; harder, confirmed one at a time | planned |
 
@@ -72,7 +72,7 @@ Adapters are per platform, so coverage grows by finding more company boards.
 - **Common Crawl index** (`index.commoncrawl.org`): search crawled URLs on ATS hosts (`jobs.lever.co/*`, `jobs.ashbyhq.com/*`, `boards.greenhouse.io/*`, `*.myworkdayjobs.com` and so on) and extract board names. One crawl's first 5,000 Lever URLs yielded 267 distinct boards. The service is often overloaded (504s), so discovery runs slowly in the background, resumes where it stopped, and retries.
 - **Verification:** each candidate board is probed once through the rate-limited fetcher and added as a company only if it has open jobs. Rejected candidates are retried after 30 days.
 - **Manual:** paste a board link on Settings → Job sources, paste many under Company discovery, or run `./scripts/dev.sh discover <file>`.
-- **Status:** live for Greenhouse, Lever and Ashby (Common Crawl, links in postings, manual). The platforms in Tier 1 still marked "verified" get discovery as their adapters are added. No ATS host publishes a sitemap of boards (checked November 2026).
+- **Status:** live for all eight live Tier 1 platforms (Common Crawl, links in postings, manual). Workday tenants have no public directory, so the first ones were found by probing well-known employers' careers URLs (November 2026: 22 of 30 guesses were real, from Capital One to CVS Health with 18,000 jobs). No ATS host publishes a sitemap of boards (checked November 2026).
 
 ## Cross-cutting
 
@@ -83,8 +83,8 @@ Adapters are per platform, so coverage grows by finding more company boards.
 
 ## Order
 
-1. **Company discovery** for Greenhouse, Lever and Ashby, plus the scale work it needs: US scope, batch inserts, re-normalizing stored jobs, a faster feed at 200k+ jobs.
-2. **More ATS platforms:** Workday, SmartRecruiters, Workable, Recruitee, BambooHR, with discovery for each.
+1. **Company discovery** for Greenhouse, Lever and Ashby, plus the scale work it needs: US scope, batch inserts, re-normalizing stored jobs, a faster feed at 200k+ jobs. (Done.)
+2. **More ATS platforms:** Workday, SmartRecruiters, Workable, Recruitee, BambooHR, with discovery for each. (Done.)
 3. **Job board APIs** with de-duplication: Himalayas, Remotive, RemoteOK, USAJOBS, Adzuna.
 4. **Career-page crawler** (JSON-LD), with Web Data Commons discovery.
 5. **Staffing tag, niche boards, HN "Who is hiring".**

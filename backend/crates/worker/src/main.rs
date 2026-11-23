@@ -2,18 +2,22 @@
 //! company job boards on the schedule stored in Postgres. Later also
 //! embeddings, fit scoring and document generation.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
+use tokio::{sync::Semaphore, task::JoinSet};
 use yob_core::{
     config::Config,
     jobs::{Fetcher, discover, ingest, seed},
     shutdown, telemetry,
 };
 
-/// Companies claimed per round, and how many are checked at once.
-const BATCH: i64 = 8;
-const CONCURRENCY: usize = 4;
+/// Companies (or discovered boards) checked at once. Per-host rate limits
+/// in Redis keep any one job board from being hit too hard.
+const SLOTS: usize = 6;
 /// Pause when nothing is due. "Check now" in the app waits at most this long.
 const IDLE: Duration = Duration::from_secs(15);
 const PRUNE_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -55,8 +59,13 @@ async fn main() -> anyhow::Result<()> {
     let stop = shutdown::signal();
     tokio::pin!(stop);
     let mut last_prune: Option<Instant> = None;
+    // Each check runs as its own task holding one slot, so a slow board (a
+    // large Workday tenant takes minutes) never holds up the others.
+    let slots = Arc::new(Semaphore::new(SLOTS));
+    let mut running = JoinSet::new();
 
     loop {
+        while running.try_join_next().is_some() {}
         if last_prune.is_none_or(|t| t.elapsed() >= PRUNE_EVERY) {
             match ingest::prune(&db).await {
                 Ok(n) => tracing::info!(cleared = n, "pruned old closed jobs"),
@@ -65,46 +74,50 @@ async fn main() -> anyhow::Result<()> {
             last_prune = Some(Instant::now());
         }
 
-        // A check cut off by shutdown rolls back its transaction; its lease
-        // expires and the company is checked again later.
-        let checked = tokio::select! {
+        let slot = tokio::select! {
             () = &mut stop => break,
-            result = ingest::run_due_checks(&db, &fetcher, BATCH, CONCURRENCY) => result,
+            slot = slots.clone().acquire_owned() => slot?,
         };
 
-        let checked = match checked {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::error!(error = %e, "couldn't claim due companies");
-                0
+        // Due companies come first; spare slots verify discovered boards.
+        match ingest::claim_due(&db, 1).await {
+            Ok(mut due) if !due.is_empty() => {
+                let company = due.remove(0);
+                let (db, fetcher) = (db.clone(), fetcher.clone());
+                running.spawn(async move {
+                    ingest::check_and_record(&db, &fetcher, &company).await;
+                    drop(slot);
+                });
+                continue;
             }
-        };
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, "couldn't claim due companies"),
+        }
+        match discover::claim_candidates(&db, 1).await {
+            Ok(mut due) if !due.is_empty() => {
+                let candidate = due.remove(0);
+                let (db, fetcher) = (db.clone(), fetcher.clone());
+                running.spawn(async move {
+                    discover::verify(&db, &fetcher, &candidate).await;
+                    drop(slot);
+                });
+                continue;
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, "couldn't claim discovered boards"),
+        }
 
-        // Spare capacity goes to verifying discovered boards. Due companies
-        // always come first.
-        let verified = if (checked as i64) < BATCH {
-            tokio::select! {
-                () = &mut stop => break,
-                result = discover::verify_candidates(&db, &fetcher, BATCH, CONCURRENCY) => {
-                    result.unwrap_or_else(|e| {
-                        tracing::error!(error = %e, "couldn't claim discovered boards");
-                        0
-                    })
-                }
-            }
-        } else {
-            0
-        };
-
-        let idle = checked == 0 && verified == 0;
-        if idle {
-            tokio::select! {
-                () = &mut stop => break,
-                () = tokio::time::sleep(IDLE) => {}
-            }
+        // Nothing due: free the slot and wait a little.
+        drop(slot);
+        tokio::select! {
+            () = &mut stop => break,
+            () = tokio::time::sleep(IDLE) => {}
         }
     }
 
+    // A check cut off here rolls back its transaction; its lease expires and
+    // the company is checked again later.
+    running.abort_all();
     crawl.abort();
     tracing::info!("worker stopped");
     Ok(())

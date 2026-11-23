@@ -1,11 +1,11 @@
-//! Keeping the job database fresh. The worker calls [`run_due_checks`] in a
+//! Keeping the job database fresh. The worker claims due companies
+//! ([`claim_due`]) and checks them ([`check_and_record`]) in a
 //! loop; everything it needs (the schedule, what's open) lives in Postgres,
 //! so a restart picks up where it left off without refetching.
 
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use futures::{StreamExt, stream};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -23,6 +23,19 @@ const MISSES_BEFORE_CLOSE: i32 = 2;
 /// Jobs written per INSERT statement.
 const UPSERT_BATCH: usize = 500;
 
+/// Job detail requests per check, for platforms that need one per job
+/// (Workday, SmartRecruiters, BambooHR). About 12 minutes at 2 a second;
+/// with a large Workday list (900 pages for 18,000 jobs) a check still fits
+/// inside the claim ([`LEASE_MINUTES`]).
+const MAX_DETAILS: usize = 1500;
+
+/// How long a claimed company stays reserved for its check.
+const LEASE_MINUTES: i32 = 60;
+
+/// Boards with more open jobs than this are checked at most every 6 hours:
+/// listing them alone takes hundreds of requests.
+const BIG_BOARD: i32 = 2000;
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DueCompany {
     pub id: Uuid,
@@ -36,31 +49,17 @@ pub struct CheckStats {
     pub seen: i32,
     pub new: i32,
     pub closed: i32,
-}
-
-/// Claims up to `limit` companies that are due and checks them, `concurrency`
-/// at a time. Returns how many were checked (0 means nothing was due).
-pub async fn run_due_checks(
-    pool: &PgPool,
-    fetcher: &Fetcher,
-    limit: i64,
-    concurrency: usize,
-) -> anyhow::Result<usize> {
-    let due = claim_due(pool, limit).await?;
-    let count = due.len();
-    stream::iter(due)
-        .for_each_concurrent(concurrency, |company| async move {
-            check_and_record(pool, fetcher, &company).await;
-        })
-        .await;
-    Ok(count)
+    /// New jobs whose details wait for the next check (over [`MAX_DETAILS`]).
+    pub backlog: i32,
 }
 
 /// Takes due companies and pushes their `next_check_at` forward as a lease,
 /// so another worker (or this one, after a crash) won't check them twice.
-async fn claim_due(pool: &PgPool, limit: i64) -> sqlx::Result<Vec<DueCompany>> {
+/// The worker claims one whenever a check slot frees up, so one slow board
+/// (a large Workday tenant) doesn't hold up the rest.
+pub async fn claim_due(pool: &PgPool, limit: i64) -> sqlx::Result<Vec<DueCompany>> {
     sqlx::query_as(
-        "UPDATE companies SET next_check_at = now() + interval '20 minutes'
+        "UPDATE companies SET next_check_at = now() + make_interval(mins => $2)
          WHERE id IN (
              SELECT id FROM companies
              WHERE active AND next_check_at <= now()
@@ -71,6 +70,7 @@ async fn claim_due(pool: &PgPool, limit: i64) -> sqlx::Result<Vec<DueCompany>> {
          RETURNING id, name, platform, board_token",
     )
     .bind(limit)
+    .bind(LEASE_MINUTES)
     .fetch_all(pool)
     .await
 }
@@ -84,7 +84,7 @@ pub async fn check_and_record(pool: &PgPool, fetcher: &Fetcher, company: &DueCom
         Ok(stats) => {
             tracing::info!(
                 company = %company.name, seen = stats.seen, new = stats.new, closed = stats.closed,
-                "checked"
+                backlog = stats.backlog, "checked"
             );
             record_success(pool, company.id, started, *stats).await
         }
@@ -119,16 +119,28 @@ async fn check_company(
     .into_iter()
     .collect();
 
-    // Full listings carry every job; id listings need details for new ids
-    // only, so a board with nothing new costs one light request.
+    // Full listings carry every job. Partial listings need details for new
+    // in-scope jobs only, so a board with nothing new costs the list alone;
+    // new out-of-scope jobs are stored from the list as small rows.
+    let mut backlog = 0;
     let (seen_ids, mut jobs): (Vec<String>, Vec<NormalizedJob>) =
         match sources::list(fetcher, platform, token).await? {
             sources::Listing::Full(jobs) => {
                 (jobs.iter().map(|j| j.source_job_id.clone()).collect(), jobs)
             }
-            sources::Listing::Ids(ids) => {
-                let new: HashSet<String> = ids.difference(&open).cloned().collect();
-                let mut jobs = sources::details(fetcher, platform, token, &new).await?;
+            sources::Listing::Partial(stubs) => {
+                let ids: HashSet<String> = stubs.iter().map(|s| s.source_job_id.clone()).collect();
+                let (mut need, mut jobs): (Vec<NormalizedJob>, Vec<NormalizedJob>) = stubs
+                    .into_iter()
+                    .filter(|s| !open.contains(&s.source_job_id))
+                    .partition(|s| normalize::us_scope(&s.locations));
+                // Huge first imports are spread over several checks; the
+                // rest stay "new" until then.
+                if need.len() > MAX_DETAILS {
+                    backlog = (need.len() - MAX_DETAILS) as i32;
+                    need.truncate(MAX_DETAILS);
+                }
+                jobs.extend(sources::details(fetcher, platform, token, &need).await?);
                 jobs.retain(|j| ids.contains(&j.source_job_id));
                 (ids.into_iter().collect(), jobs)
             }
@@ -167,6 +179,7 @@ async fn check_company(
         seen: seen_ids.len() as i32,
         new,
         closed,
+        backlog,
     })
 }
 
@@ -319,7 +332,8 @@ async fn close_missing(
 
 /// Schedules the next check from how actively the company posts:
 /// a job posted in the last week → 15 minutes, last month → 6 hours,
-/// otherwise daily. ±10% jitter spreads checks out.
+/// otherwise daily; boards over [`BIG_BOARD`] jobs at most every 6 hours.
+/// ±10% jitter spreads checks out.
 async fn record_success(
     pool: &PgPool,
     company_id: Uuid,
@@ -331,11 +345,14 @@ async fn record_success(
         "WITH activity AS (
              SELECT max(posted_at) AS latest FROM jobs WHERE company_id = $1 AND closed_at IS NULL
          ), cadence AS (
-             SELECT CASE
-                 WHEN latest > now() - interval '7 days' THEN 15
-                 WHEN latest > now() - interval '30 days' THEN 360
-                 ELSE 1440
-             END AS minutes FROM activity
+             SELECT GREATEST(
+                 CASE
+                     WHEN latest > now() - interval '7 days' THEN 15
+                     WHEN latest > now() - interval '30 days' THEN 360
+                     ELSE 1440
+                 END,
+                 CASE WHEN $3 > $4 THEN 360 ELSE 0 END
+             ) AS minutes FROM activity
          )
          UPDATE companies SET
              last_checked_at = now(),
@@ -343,11 +360,18 @@ async fn record_success(
              last_error = NULL,
              consecutive_failures = 0,
              check_interval_min = (SELECT minutes FROM cadence),
-             next_check_at = now() + make_interval(mins => (SELECT minutes FROM cadence))
-                                     * (0.9 + random() * 0.2)
+             next_check_at = CASE
+                 -- Details still to fetch: come back soon.
+                 WHEN $2 > 0 THEN now() + interval '15 minutes'
+                 ELSE now() + make_interval(mins => (SELECT minutes FROM cadence))
+                              * (0.9 + random() * 0.2)
+             END
          WHERE id = $1",
     )
     .bind(company_id)
+    .bind(stats.backlog)
+    .bind(stats.seen)
+    .bind(BIG_BOARD)
     .execute(&mut *tx)
     .await?;
     insert_check(&mut tx, company_id, started, "ok", stats, None).await?;
@@ -436,7 +460,7 @@ pub async fn probe_board(
     platform: Platform,
     token: &str,
 ) -> Result<usize, FetchError> {
-    Ok(sources::list(fetcher, platform, token).await?.len())
+    sources::count(fetcher, platform, token).await
 }
 
 #[derive(sqlx::FromRow)]

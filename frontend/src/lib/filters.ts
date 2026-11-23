@@ -52,6 +52,11 @@ export const SOURCE: Option[] = [
   { value: "greenhouse", label: "Greenhouse" },
   { value: "lever", label: "Lever" },
   { value: "ashby", label: "Ashby" },
+  { value: "workday", label: "Workday" },
+  { value: "smartrecruiters", label: "SmartRecruiters" },
+  { value: "workable", label: "Workable" },
+  { value: "recruitee", label: "Recruitee" },
+  { value: "bamboohr", label: "BambooHR" },
 ];
 
 export const POSTED_WITHIN: Option[] = [

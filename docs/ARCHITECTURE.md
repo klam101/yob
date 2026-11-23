@@ -75,35 +75,39 @@ Jobs come straight from the hiring systems companies use for their career pages,
 
 | Order | Platform | How we read it |
 | --- | --- | --- |
-| 1 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs` (light id list); `?content=true` adds descriptions (HTML-escaped) for all jobs in one request. No workplace or employment type, so those are inferred. |
+| 1 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs` (light list); `?content=true` adds descriptions (HTML-escaped) for all jobs in one request. No workplace or employment type, so those are inferred. |
 | 1 | Lever | `api.lever.co/v0/postings/{company}?mode=json`, everything in one request. Rate-limits quickly. |
 | 1 | Ashby | `api.ashbyhq.com/posting-api/job-board/{name}?includeCompensation=true`, everything in one request, with structured pay |
-| 2 | Workday | The JSON the company's careers page loads (unofficial) |
-| 2 | Eightfold | The JSON the careers page loads (Microsoft, Starbucks, Qualcomm, PayPal are listed as customers) |
-| 3 | iCIMS, SuccessFactors, Oracle, SmartRecruiters | Confirmed one at a time |
+| 2 | Workday | The JSON the careers page loads. Token `tenant/wdN/site`. List: POST `/wday/cxs/{tenant}/{site}/jobs`, 20 per page; detail: GET per job. Some tenants stop listing at 2,000 jobs. |
+| 2 | SmartRecruiters | Official Posting API, `api.smartrecruiters.com/v1/companies/{id}/postings`, 100 per page; detail per job. Unknown ids return an empty list. |
+| 2 | Workable | `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, everything in one request. Only says "telecommuting" or not. |
+| 2 | Recruitee | `{company}.recruitee.com/api/offers/`, everything in one request, with remote and hybrid flags and sometimes pay |
+| 2 | BambooHR | The JSON the careers page loads: `{company}.bamboohr.com/careers/list`, then `/careers/{id}/detail` per job. A missing company redirects to bamboohr.com. |
+| 3 | Eightfold | The JSON the careers page loads (Microsoft, Starbucks, Qualcomm, PayPal are listed as customers) |
+| 3 | iCIMS, SuccessFactors, Oracle | Confirmed one at a time |
 | never | LinkedIn, Indeed, hiringcafe | Terms forbid scraping |
 
-Greenhouse, Lever and Ashby endpoints were confirmed in November 2026; the rest are still from memory and get confirmed when each adapter is built. Code: `backend/crates/core/src/jobs/` (`sources/` per platform, `normalize.rs`, `ingest.rs`, `store.rs`).
+The endpoints for tiers 1 and 2 were confirmed in November 2026; the rest get confirmed when each adapter is built. Code: `backend/crates/core/src/jobs/` (`sources/` per platform, `normalize.rs`, `ingest.rs`, `store.rs`).
 
 **Postgres is the job database; pages never call job boards.** The worker keeps a stored copy fresh in the background, and the feed and detail pages only query Postgres. They stay fast and keep working with the worker stopped or offline. Data survives restarts in the `pgdata` volume. Around 23,000 open jobs take about 230 MB.
 
 **Finding companies** (`discover.rs`; roadmap in [SOURCES.md](SOURCES.md)). A verified starter list ships in `seed_companies.json` (170 companies) and is inserted on worker start. Discovery adds more as `company_candidates`:
 
-- **Common Crawl:** the worker reads the URL index of the three newest crawls for Greenhouse, Lever and Ashby board links in the background. It pauses 3 seconds between pages, retries the often-overloaded index with long backoff, and saves progress per page in `discovery_progress`, so it resumes after restarts. Then it checks daily for a new crawl.
+- **Common Crawl:** the worker reads the URL index of the three newest crawls for board links on every supported platform in the background (Workday's huge pattern last). It pauses 3 seconds between pages, retries the often-overloaded index with long backoff, and saves progress per page in `discovery_progress`, so it resumes after restarts. Then it checks daily for a new crawl.
 - **Links:** board links inside new job postings.
 - **Manual:** one URL on Settings → Job sources (checked on the spot), or many at once there or with `./scripts/dev.sh discover <file>`.
 
-When no company is due, the worker verifies candidates through the same rate-limited fetcher. A board with open jobs becomes a company, named from Greenhouse's board API or the Lever or Ashby page title. A missing or empty board is retried after 30 days. Preferences filter at search time, so the list can be broad.
+When no company is due, the worker verifies candidates through the same rate-limited fetcher. Verifying reads a single page on paged platforms (Workday, SmartRecruiters). A board with open jobs becomes a company, named from Greenhouse's board API, the Lever or Ashby page title, or the company name in SmartRecruiters, Workable or Recruitee data; Workday and BambooHR use the token. A missing or empty board is retried after 30 days. Preferences filter at search time, so the list can be broad.
 
 **Scope: US and remote.** `normalize::us_scope` keeps a job when any location is in the US or isn't recognized (plain "Remote" counts as in). It drops a job only when every location is clearly elsewhere. Out-of-scope jobs are stored as rows without descriptions (`in_scope = false`), so checks still recognize them; the feed, facets and counts skip them.
 
 **How a check runs.**
 
-1. The schedule lives in Postgres (`companies.next_check_at`), so a restart resumes it instead of refetching everything. The worker claims due companies with `FOR UPDATE SKIP LOCKED` and a 20-minute lease, so several workers never check the same company twice. (This replaces a Redis Streams queue for ingestion; Redis Streams stays planned for on-demand AI work.)
-2. The interval adapts to how often the company posts: 15 minutes if it posted in the last week, 6 hours if in the last month, otherwise daily, with ±10% jitter. Failures back off from 15 minutes up to a day. Redis holds a per-host request budget per second (Greenhouse 4, Ashby 2, Lever 1), shared by the worker and the API.
-3. Each adapter returns either full jobs in one request (Lever, Ashby) or a light id list (Greenhouse). For an id list, details are fetched only when new ids appear.
+1. The schedule lives in Postgres (`companies.next_check_at`), so a restart resumes it instead of refetching everything. The worker runs 6 check slots and claims one due company whenever a slot frees up, with `FOR UPDATE SKIP LOCKED` and a 60-minute lease, so several workers never check the same company twice and one slow board doesn't hold up the rest. Spare slots verify discovered boards. (This replaces a Redis Streams queue for ingestion; Redis Streams stays planned for on-demand AI work.)
+2. The interval adapts to how often the company posts: 15 minutes if it posted in the last week, 6 hours if in the last month, otherwise daily, with ±10% jitter. Boards with more than 2,000 jobs wait at least 6 hours, since listing them alone takes hundreds of requests. Failures back off from 15 minutes up to a day. Redis holds a per-host request budget per second (Greenhouse 4, SmartRecruiters 4, Ashby 2, each Workday tenant and Recruitee company 2, Lever, Workable, BambooHR and others 1), shared by the worker and the API.
+3. Each adapter returns either full jobs (Lever, Ashby, Workable, Recruitee) or a partial list of stubs with id, title and locations (Greenhouse, Workday, SmartRecruiters, BambooHR). For a partial list, new out-of-scope stubs are stored as they are, and details are fetched only for new jobs in the US or with unknown locations: the whole board in one request for Greenhouse, one request per job elsewhere, at most 1,500 per check. The rest wait for the next check, 15 minutes later.
 4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Jobs are written 500 per statement (`jsonb_to_recordset`); unchanged open jobs aren't rewritten. Every check is logged in `company_checks`.
-5. **Rule changes reach stored jobs.** Each row records the `normalize_version` it was derived with, and whether its salary came from text or a structured field. When the rules in `normalize.rs` change, bump `NORMALIZE_VERSION`. On start, the worker re-derives seniority, scope and text-parsed salaries from the stored title, locations and description, without refetching.
+5. **Rule changes reach stored jobs.** Each row records the `normalize_version` it was derived with, and whether its salary came from text or a structured field. When the rules in `normalize.rs` change, bump `NORMALIZE_VERSION`. On start, the worker re-derives seniority, scope and text-parsed salaries from the stored title, locations and description, without refetching. Salaries are read from ranges like "$120,000 - $150,000", "$120K to $150K" and "187,500 USD – 364,000 USD" (common on Workday).
 6. Later: new jobs are embedded and queued for scoring.
 
 **Feed at scale.** Feed queries use partial indexes over open, in-scope jobs and a `pg_trgm` index for substring title search. Filter facets (top 60 departments, top 200 companies) are cached in Redis for 5 minutes; other companies are searched through `GET /jobs/companies`.

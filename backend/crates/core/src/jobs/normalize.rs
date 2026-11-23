@@ -146,7 +146,8 @@ pub fn infer_workplace(title: &str, locations: &[String], text: &str) -> Workpla
 }
 
 /// A USD salary range written in the description, e.g. "$120,000 - $150,000",
-/// "$55 – $65 per hour" or "$120K to $150K". Returns None when unsure.
+/// "$55 – $65 per hour", "$120K to $150K" or "187,500 USD – 364,000 USD"
+/// (common on Workday). Returns None when unsure.
 pub fn parse_salary(text: &str) -> Option<Salary> {
     static RANGE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
@@ -154,8 +155,18 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
         )
         .unwrap()
     });
+    // No dollar sign: "USD" right after the first number is required.
+    static USD_RANGE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\b(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?\s*usd\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?",
+        )
+        .unwrap()
+    });
 
-    for caps in RANGE.captures_iter(text) {
+    for caps in RANGE
+        .captures_iter(text)
+        .chain(USD_RANGE.captures_iter(text))
+    {
         let num = |i: usize, k: usize| -> Option<f64> {
             let n: f64 = caps.get(i)?.as_str().replace(',', "").parse().ok()?;
             Some(if caps.get(k).is_some() { n * 1000.0 } else { n })
@@ -208,7 +219,7 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
 /// Version of the rules in this file. Bump it whenever a rule changes how
 /// seniority, scope or a text-parsed salary come out; the worker then
 /// re-derives stored jobs (`ingest::renormalize`) without refetching them.
-pub const NORMALIZE_VERSION: i32 = 3;
+pub const NORMALIZE_VERSION: i32 = 5;
 
 /// Where a single location string points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,6 +362,50 @@ static FOREIGN_REGION: LazyLock<Regex> = LazyLock::new(|| {
         "european union",
         "kuwait",
         "cambodia",
+        // Not "jordan", "lebanon", "georgia" or "panama": West Jordan UT,
+        // Lebanon PA, the state, Panama City FL. Their capitals are cities below.
+        "viet nam",
+        "oman",
+        "bahrain",
+        "iraq",
+        "iran",
+        "tunisia",
+        "algeria",
+        "ethiopia",
+        "tanzania",
+        "uganda",
+        "rwanda",
+        "senegal",
+        "côte d'ivoire",
+        "cameroon",
+        "zimbabwe",
+        "zambia",
+        "mozambique",
+        "angola",
+        "kazakhstan",
+        "uzbekistan",
+        "azerbaijan",
+        "armenia",
+        "mongolia",
+        "myanmar",
+        "macau",
+        "macao",
+        "ecuador",
+        "bolivia",
+        "paraguay",
+        "venezuela",
+        "honduras",
+        "el salvador",
+        "nicaragua",
+        "jamaica",
+        "trinidad",
+        "belarus",
+        "moldova",
+        "bosnia",
+        "albania",
+        "north macedonia",
+        "montenegro",
+        "kosovo",
         "anz",
         "dach",
         "nordics",
@@ -491,6 +546,10 @@ static US_PLACE: LazyLock<Regex> = LazyLock::new(|| {
 /// US lists, so "Dublin, OH" and "Paris, TX" stay American.
 static FOREIGN_CITY: LazyLock<Regex> = LazyLock::new(|| {
     alternation(&[
+        "amman",
+        "beirut",
+        "tbilisi",
+        "panama city, panama",
         "london",
         "paris",
         "berlin",
@@ -753,6 +812,12 @@ mod tests {
         let s = parse_salary("Pay: $55 – $65 per hour").unwrap();
         assert_eq!((s.min, s.max, s.period), (55, 65, SalaryPeriod::Hour));
 
+        let s = parse_salary("ranges are:\n187,500 USD – 364,000 USD for Level 4").unwrap();
+        assert_eq!(
+            (s.min, s.max, s.period),
+            (187_500, 364_000, SalaryPeriod::Year)
+        );
+        assert!(parse_salary("Teams of 120,000 to 150,000 USD-based users").is_none());
         let s = parse_salary("$120K to $150K + equity").unwrap();
         assert_eq!((s.min, s.max), (120_000, 150_000));
 
@@ -800,6 +865,16 @@ mod tests {
             ("GBR - LON Metro", Place::NonUs),
             ("Vancouver, British Columbia", Place::NonUs),
             ("Ontario, CA", Place::Us),
+            // Workday's "Country - City" and "US, ST, City" forms.
+            ("Jordan - Amman", Place::NonUs),
+            ("Lebanon - Beirut", Place::NonUs),
+            ("Viet Nam - Ho Chi Minh", Place::NonUs),
+            ("Oman - Muscat", Place::NonUs),
+            ("US, CA, Santa Clara", Place::Us),
+            ("USA.VA.Reston", Place::Us),
+            ("Vancouver, Washington, United States of America", Place::Us),
+            ("West Jordan, UT", Place::Us),
+            ("Lebanon, PA", Place::Us),
             ("NAMER", Place::Us),
             ("Can be remote", Place::Unknown),
             ("Hybrid", Place::Unknown),

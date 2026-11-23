@@ -7,12 +7,12 @@
 //! - URLs pasted on the Job sources page or sent with `dev.sh discover`.
 //!
 //! Each candidate is verified once through the rate-limited fetcher
-//! ([`verify_candidates`]) and becomes a company only if it has open jobs.
+//! ([`verify`]) and becomes a company only if it has open jobs.
 
 use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
-use futures::{StreamExt, stream};
+
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -30,6 +30,13 @@ pub const PATTERNS: &[&str] = &[
     "job-boards.greenhouse.io/*",
     "jobs.lever.co/*",
     "jobs.ashbyhq.com/*",
+    "jobs.smartrecruiters.com/*",
+    "apply.workable.com/*",
+    "*.recruitee.com",
+    "*.bamboohr.com",
+    "*.myworkdaysite.com",
+    // Largest last: millions of Workday job pages, from a few thousand tenants.
+    "*.myworkdayjobs.com",
 ];
 /// How many of the newest crawls to read. Older crawls add few live boards.
 const CRAWLS: usize = 3;
@@ -76,21 +83,17 @@ pub async fn add_candidates(
 }
 
 #[derive(sqlx::FromRow)]
-struct Candidate {
+pub struct Candidate {
     id: i64,
     platform: String,
-    token: String,
+    pub token: String,
 }
 
-/// Claims up to `limit` candidates that are due and verifies them,
-/// `concurrency` at a time. Returns how many were checked.
-pub async fn verify_candidates(
-    pool: &PgPool,
-    fetcher: &Fetcher,
-    limit: i64,
-    concurrency: usize,
-) -> sqlx::Result<usize> {
-    let due: Vec<Candidate> = sqlx::query_as(
+/// Claims up to `limit` candidates that are due for a check, with a
+/// 20-minute lease. The worker verifies them with [`verify`] when it has a
+/// free slot and no company is due.
+pub async fn claim_candidates(pool: &PgPool, limit: i64) -> sqlx::Result<Vec<Candidate>> {
+    sqlx::query_as(
         "UPDATE company_candidates SET next_check_at = now() + interval '20 minutes'
          WHERE id IN (
              SELECT id FROM company_candidates
@@ -103,16 +106,15 @@ pub async fn verify_candidates(
     )
     .bind(limit)
     .fetch_all(pool)
-    .await?;
-    let count = due.len();
-    stream::iter(due)
-        .for_each_concurrent(concurrency, |c| async move {
-            if let Err(e) = verify_one(pool, fetcher, &c).await {
-                tracing::warn!(token = %c.token, error = %e, "couldn't record candidate result");
-            }
-        })
-        .await;
-    Ok(count)
+    .await
+}
+
+/// Probes one candidate board: a company if it has open jobs, otherwise
+/// rejected for 30 days.
+pub async fn verify(pool: &PgPool, fetcher: &Fetcher, c: &Candidate) {
+    if let Err(e) = verify_one(pool, fetcher, c).await {
+        tracing::warn!(token = %c.token, error = %e, "couldn't record candidate result");
+    }
 }
 
 async fn verify_one(pool: &PgPool, fetcher: &Fetcher, c: &Candidate) -> sqlx::Result<()> {
