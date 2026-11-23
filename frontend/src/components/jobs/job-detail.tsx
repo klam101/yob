@@ -13,10 +13,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import type { JobDetail, JobSummary } from "@/api/client";
+import { Fragment } from "react";
+import type { JobDetail, JobSummary, Listing } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { JOB_BOARDS } from "@/lib/filters";
 import { MATCH_LABEL, MATCH_TONE, peopleLinks, sourceLabel, timeAgo } from "@/lib/format";
 import { cn } from "cn";
 import { BackButton } from "./back-button";
@@ -31,6 +33,9 @@ import {
 
 export function JobDetailView({ detail, related }: { detail: JobDetail; related: JobSummary[] }) {
   const { job } = detail;
+  // A job only a board lists links to that listing; other boards are credited below.
+  const own = detail.listings.find((l) => l.source === job.source);
+  const others = detail.listings.filter((l) => l !== own);
 
   return (
     <div className="space-y-5">
@@ -58,7 +63,8 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
                     <span className="font-semibold">{job.company.name}</span>
                     <span className="text-muted-foreground">
                       {" "}
-                      · posted {timeAgo(job.posted_at)} · via {sourceLabel(job.source)}
+                      · posted {timeAgo(job.posted_at)} · via{" "}
+                      {own ? <BoardLink listing={own} /> : sourceLabel(job.source)}
                     </span>
                   </p>
                 </div>
@@ -67,11 +73,23 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
                 </h1>
                 <JobBadges job={job} />
                 <JobMeta job={job} className="pt-1 lg:grid-cols-2" />
+                {others.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Also listed on{" "}
+                    {others.map((l, i) => (
+                      <Fragment key={l.url}>
+                        {i > 0 && ", "}
+                        <BoardLink listing={l} />
+                      </Fragment>
+                    ))}
+                  </p>
+                )}
                 {job.closed_at && (
                   <p className="flex gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
                     <Info className="mt-0.5 size-4 shrink-0" />
-                    This job was removed from {job.company.name}&apos;s job board {timeAgo(job.closed_at)} and
-                    is probably no longer accepting applications.
+                    This job was removed from{" "}
+                    {JOB_BOARDS.has(job.source) ? sourceLabel(job.source) : `${job.company.name}'s job board`}{" "}
+                    {timeAgo(job.closed_at)} and is probably no longer accepting applications.
                   </p>
                 )}
                 {detail.workplace_note && (
@@ -138,6 +156,15 @@ export function JobDetailView({ detail, related }: { detail: JobDetail; related:
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Credit and a link back to a job board's listing. Remotive and Remote OK require both, with a followed link. */
+function BoardLink({ listing }: { listing: Listing }) {
+  return (
+    <a href={listing.url} target="_blank" rel="noopener" className="text-primary hover:underline">
+      {sourceLabel(listing.source)}
+    </a>
   );
 }
 
@@ -283,7 +310,8 @@ function CompanyPanel({ job, related }: { job: JobSummary; related: JobSummary[]
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
           >
-            Careers page <ArrowUpRight className="size-3.5" />
+            {JOB_BOARDS.has(job.source) ? `On ${sourceLabel(job.source)}` : "Careers page"}{" "}
+            <ArrowUpRight className="size-3.5" />
           </a>
         </div>
       </div>

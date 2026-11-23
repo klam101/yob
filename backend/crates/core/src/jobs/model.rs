@@ -46,6 +46,34 @@ text_enum!(
         Bamboohr => "bamboohr",
     }
 );
+text_enum!(
+    /// A job board with a public API. Its jobs are matched against the
+    /// employers' own boards (see `jobs::feeds`).
+    Feed {
+        Himalayas => "himalayas",
+        Remotive => "remotive",
+        Remoteok => "remoteok",
+        Usajobs => "usajobs",
+    }
+);
+text_enum!(
+    /// Where a job came from: an employer's hiring platform, or a job board
+    /// when no employer copy is tracked. The feed's Source filter.
+    Source {
+        Greenhouse => "greenhouse",
+        Lever => "lever",
+        Ashby => "ashby",
+        Workday => "workday",
+        Smartrecruiters => "smartrecruiters",
+        Workable => "workable",
+        Recruitee => "recruitee",
+        Bamboohr => "bamboohr",
+        Himalayas => "himalayas",
+        Remotive => "remotive",
+        Remoteok => "remoteok",
+        Usajobs => "usajobs",
+    }
+);
 text_enum!(Workplace { Onsite => "onsite", Hybrid => "hybrid", Remote => "remote" });
 text_enum!(EmploymentType {
     FullTime => "full_time",
@@ -106,9 +134,23 @@ mod tests {
     #[test]
     fn database_names_match_serde() {
         check(Platform::ALL, Platform::as_str);
+        check(Feed::ALL, Feed::as_str);
+        check(Source::ALL, Source::as_str);
         check(Workplace::ALL, Workplace::as_str);
         check(EmploymentType::ALL, EmploymentType::as_str);
         check(Seniority::ALL, Seniority::as_str);
         check(SalaryPeriod::ALL, SalaryPeriod::as_str);
+    }
+
+    #[test]
+    fn every_platform_and_feed_is_a_source() {
+        let names = Platform::ALL
+            .iter()
+            .map(|p| p.as_str())
+            .chain(Feed::ALL.iter().map(|f| f.as_str()));
+        for name in names {
+            assert!(Source::parse(name).is_some(), "{name} missing from Source");
+        }
+        assert_eq!(Source::ALL.len(), Platform::ALL.len() + Feed::ALL.len());
     }
 }

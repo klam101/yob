@@ -40,15 +40,15 @@ Broad, candidate-facing listings. Only boards with official APIs or feeds, used 
 
 | Board | Access | Notes | Status |
 | --- | --- | --- | --- |
-| Himalayas | Free API (`himalayas.app/jobs/api`) | About 120,000 remote jobs | verified |
-| Remotive | Free API (`remotive.com/api/remote-jobs`) | Attribution required | verified |
-| RemoteOK | Free API (`remoteok.com/api`) | Attribution and link back required | verified |
-| Arbeitnow | Free API (`arbeitnow.com/api/job-board-api`) | Mostly Europe; keep only US and remote | verified |
-| USAJOBS | Free API with a key (`data.usajobs.gov`) | All US federal jobs | verified (needs key) |
-| Adzuna | Free API with a key | Broad US aggregator | planned |
+| Himalayas | Free API (`himalayas.app/jobs/api`), 20 per page with a cursor | About 120,000 remote jobs, about 57% open to US workers; links back to Himalayas, not the employer | live |
+| Remotive | Free API (`remotive.com/api/remote-jobs`) | Only about 15 jobs, delayed 24 hours; at most 4 calls a day; credit and link back required | live |
+| Remote OK | Free API (`remoteok.com/api`) | Latest ~100 jobs; credit and a followed link back required; some text double-encoded (repaired) | live |
+| USAJOBS | Free API with a key (`data.usajobs.gov`) | All US federal jobs open to the public; needs the key holder's email as User-Agent. Built against the documented response, not yet run with a real key | live (needs key) |
+| Arbeitnow | Free API (`arbeitnow.com/api/job-board-api`) | German board: its "remote" jobs are mostly Germany-only, so almost nothing is in scope | skipped |
+| Adzuna | Free API with a key | Short snippets instead of descriptions, links through Adzuna's redirect, and a small daily call allowance | skipped for now |
 | LinkedIn, Indeed | Not used | See the rules above | excluded |
 
-Board listings are often duplicates of ATS jobs we already have, so they go through de-duplication (below) and are tagged with their source.
+Board listings are often duplicates of ATS jobs we already have, so they go through de-duplication (below). In November 2026, 49 of 79 in-scope Remote OK listings were jobs we already had from employers' boards.
 
 ## Tier 4: staffing agencies
 
@@ -76,15 +76,15 @@ Adapters are per platform, so coverage grows by finding more company boards.
 
 ## Cross-cutting
 
-- **De-duplication and canonical source:** the employer's own ATS or careers page wins over aggregators. Match by apply URL first, then by company + normalized title + location + content hash. Keep every source as an attribution on the canonical job.
+- **De-duplication and canonical source:** the employer's own ATS or careers page wins over aggregators. Boards rarely link straight to the employer (Himalayas, Remotive and Remote OK link to their own pages), so matching is by company + normalized title + workplace or location. Every board listing is kept as an attribution on the job it matched (`job_sources`). Live for job boards.
 - **Scope at import:** keep jobs in the US or remote for US workers. Out-of-scope jobs are stored as small rows without descriptions, so incremental checks still recognize them.
-- **Quality:** aggregator jobs get basic checks (company present, apply link reachable, not obviously a scam or a lead-generation listing). The "possibly stale" and repost signals apply to every source.
+- **Quality:** board jobs need a company, a title and https links, must be open to US workers, and are dropped when they come from a known reposting service (Lifelancer, Jobgether). The "possibly stale" and repost signals apply to every source.
 - **Scale:** about 1 million US and remote jobs is roughly 8 to 10 GB in Postgres, plus about 10 GB once every job has an embedding. That's fine locally on an SSD; embeddings can be limited to jobs that pass the user's preference filters. Search uses Postgres full-text search and trigram indexes; a dedicated search engine is only needed if those get slow.
 
 ## Order
 
 1. **Company discovery** for Greenhouse, Lever and Ashby, plus the scale work it needs: US scope, batch inserts, re-normalizing stored jobs, a faster feed at 200k+ jobs. (Done.)
 2. **More ATS platforms:** Workday, SmartRecruiters, Workable, Recruitee, BambooHR, with discovery for each. (Done.)
-3. **Job board APIs** with de-duplication: Himalayas, Remotive, RemoteOK, USAJOBS, Adzuna.
+3. **Job board APIs** with de-duplication: Himalayas, Remotive, Remote OK, USAJOBS. (Done; Arbeitnow and Adzuna skipped, see Tier 3.)
 4. **Career-page crawler** (JSON-LD), with Web Data Commons discovery.
 5. **Staffing tag, niche boards, HN "Who is hiring".**

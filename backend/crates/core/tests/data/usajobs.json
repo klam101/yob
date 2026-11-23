@@ -1,0 +1,88 @@
+{
+ "LanguageCode": "EN",
+ "SearchParameters": {},
+ "SearchResult": {
+  "SearchResultCount": 2,
+  "SearchResultCountAll": 1000,
+  "SearchResultItems": [
+   {
+    "MatchedObjectId": "21947200",
+    "MatchedObjectDescriptor": {
+     "PositionID": "SW62210-05-1716110PB411413H",
+     "PositionTitle": "IT SPECIALIST (INFOSEC/NETWORK)",
+     "PositionURI": "https://www.usajobs.gov/GetJob/ViewDetails/21947200",
+     "ApplyURI": ["https://www.usajobs.gov/GetJob/ViewDetails/21947200?PostingChannelID=RESTAPI"],
+     "PositionLocationDisplay": "Point Loma Complex, San Diego, California",
+     "PositionLocation": [
+      {
+       "LocationName": "Point Loma Complex, San Diego, California",
+       "CountryCode": "United States",
+       "CountrySubDivisionCode": "California",
+       "CityName": "Point Loma Complex, San Diego, California",
+       "Longitude": -117.194382,
+       "Latitude": 32.7042961
+      }
+     ],
+     "OrganizationName": "Space and Naval Warfare Systems Command",
+     "DepartmentName": "Department of the Navy",
+     "JobCategory": [{"Name": "Information Technology Management", "Code": "2210"}],
+     "JobGrade": [{"Code": "NO"}],
+     "PositionSchedule": [{"Name": "Full-Time", "Code": "1"}],
+     "PositionOfferingType": [{"Name": "Permanent", "Code": "15317"}],
+     "QualificationSummary": "You must have one year of specialized experience at the GS-11 level.",
+     "PositionRemuneration": [
+      {"MinimumRange": "92108", "MaximumRange": "119746", "RateIntervalCode": "PA", "Description": "Per Year"}
+     ],
+     "PositionStartDate": "2026-11-20T00:00:00.0000",
+     "PositionEndDate": "2026-12-01T23:59:59.9970",
+     "PublicationStartDate": "2026-11-20T00:00:00.0000",
+     "ApplicationCloseDate": "2026-12-01T23:59:59.9970",
+     "UserArea": {
+      "Details": {
+       "JobSummary": "Protect Navy networks.\n\nThis is a direct hire position.",
+       "MajorDuties": ["Monitor network security tools.", "Respond to incidents."],
+       "Education": "",
+       "Requirements": "",
+       "KeyRequirements": ["U.S. Citizenship is required."],
+       "OtherInformation": "Relocation is not paid.",
+       "TeleworkEligible": true,
+       "RemoteIndicator": false,
+       "WhoMayApply": {"Name": "United States Citizens", "Code": "15514"}
+      },
+      "IsRadialSearch": false
+     }
+    },
+    "RelevanceRank": 0.0
+   },
+   {
+    "MatchedObjectId": "21947201",
+    "MatchedObjectDescriptor": {
+     "PositionID": "VA-26-0001",
+     "PositionTitle": "Medical Support Assistant",
+     "PositionURI": "https://www.usajobs.gov/GetJob/ViewDetails/21947201",
+     "ApplyURI": ["https://www.usajobs.gov/GetJob/ViewDetails/21947201?PostingChannelID=RESTAPI"],
+     "PositionLocation": [
+      {"LocationName": "Anywhere in the U.S. (remote job)", "CountryCode": "United States"}
+     ],
+     "OrganizationName": "Veterans Health Administration",
+     "DepartmentName": "Department of Veterans Affairs",
+     "JobCategory": [{"Name": "Medical Support Assistance", "Code": "0679"}],
+     "PositionSchedule": [{"Name": "Part-Time", "Code": "2"}],
+     "PositionOfferingType": [{"Name": "Temporary", "Code": "15327"}],
+     "PositionRemuneration": [
+      {"MinimumRange": "21.50", "MaximumRange": "27.95", "RateIntervalCode": "PH", "Description": "Per Hour"}
+     ],
+     "PublicationStartDate": "2026-11-21T00:00:00Z",
+     "UserArea": {
+      "Details": {
+       "JobSummary": "<p>Schedule appointments for veterans.</p>",
+       "MajorDuties": "Answer calls & schedule visits.",
+       "RemoteIndicator": true
+      }
+     }
+    }
+   }
+  ],
+  "UserArea": {"NumberOfPages": "2", "IsRadialSearch": false}
+ }
+}

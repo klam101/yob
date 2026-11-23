@@ -67,13 +67,17 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Later: Breezy, JazzHR, Personio, Teamtailor, Jobvite, iCIMS, SuccessFactors, Oracle, Eightfold
 
 **Job board APIs**
-- [ ] De-duplication: employer ATS wins; match by apply URL, then company + title + location + hash; keep every source as attribution
-- [ ] Himalayas, Remotive, RemoteOK (with required attribution)
-- [ ] USAJOBS and Adzuna (free API keys)
+- [x] De-duplication: the employer's job wins (company + title + workplace or location); every listing kept as attribution in `job_sources`
+- [x] Himalayas, Remotive, Remote OK, with "via" and "Also listed on" links on the job page
+- [x] USAJOBS when `USAJOBS_API_KEY` and `USAJOBS_EMAIL` are in `.env`
+- [x] Settings → Job boards: status, jobs only on a board, listings matched
+- [ ] Run USAJOBS with a real key and compare its answer with the documented shape the adapter was built from
+- [ ] Better company matching across boards: "Oura Health Ltd" (Himalayas) and "ŌURA" (Remote OK) are still two companies
+- [ ] Adzuna, if the snippet-only descriptions and daily call limit turn out to be worth it (skipped for now; Arbeitnow skipped: German jobs)
 
 **Career pages, staffing and long tail**
 - [ ] Career-page crawler reading schema.org JobPosting (sitemaps, robots.txt), with Web Data Commons discovery
-- [ ] "Staffing agency" tag and filter
+- [ ] "Staffing agency" tag and filter (Himalayas adds many: staffing firms and AI-training gig platforms like micro1 and Mercor)
 - [ ] Niche boards (government, higher ed, nonprofit) via RSS and APIs
 - [ ] Hacker News "Who is hiring" via the Algolia API, parsed by the local model
 - [ ] Extension: "Save this job" for a LinkedIn or Indeed page you're viewing (no crawling)
@@ -129,3 +133,4 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Database tests for the ingest rules (closing, reposts); browser tests for the feed
 - [ ] Review the 14 high-severity `npm audit` warnings from the Next.js starter
 - [ ] Try Ctrl+C in `./scripts/dev.sh dev` to confirm it stops everything
+- [ ] Phone width (390px): the top bar (theme toggle and API status) and the Settings → Job sources section scroll the page sideways

@@ -31,6 +31,8 @@ First time:
 
 Then open http://localhost:3000.
 
+Optional: to add US federal jobs from USAJOBS, get a free key at https://developer.usajobs.gov/apirequest/ and set `USAJOBS_API_KEY` and `USAJOBS_EMAIL` in `.env` (see `.env.example`), then run `up` again. Everything else needs no keys.
+
 | Command | What it does |
 | --- | --- |
 | `setup` | Checks Docker, Rust and Node; creates `.env` if missing; installs frontend packages |

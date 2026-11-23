@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{AssertSqlSafe, PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
-use super::model::{EmploymentType, Platform, Seniority, Workplace};
+use super::model::{EmploymentType, Platform, Seniority, Source, Workplace};
 
 /// "Possibly stale": open more than 60 days (by the earlier of the company's
 /// posted date and when we first saw it) or reposted more than twice.
@@ -25,7 +25,8 @@ pub struct JobFilter {
     pub department: Vec<String>,
     /// Lowercased company names.
     pub company: Vec<String>,
-    pub platform: Vec<Platform>,
+    /// Where the job came from: the employer's platform, or a job board.
+    pub source: Vec<Source>,
     pub posted_after: Option<DateTime<Utc>>,
     /// Minimum yearly salary.
     pub salary_min: Option<i32>,
@@ -64,7 +65,8 @@ pub struct JobRow {
     pub company_name: String,
     pub company_domain: Option<String>,
     pub company_careers_url: String,
-    pub platform: String,
+    /// The employer's platform, or the job board for jobs only a board lists.
+    pub source: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -85,7 +87,7 @@ const SELECT_JOB: &str = "SELECT j.id, j.title, j.department, j.locations, j.wor
        j.employment_type, j.seniority, j.salary_min, j.salary_max, j.salary_currency,
        j.salary_period, j.posted_at, j.first_seen_at, j.last_seen_at, j.closed_at,
        j.repost_count, j.apply_url, c.name AS company_name, c.domain AS company_domain,
-       c.careers_url AS company_careers_url, c.platform";
+       c.careers_url AS company_careers_url, COALESCE(j.feed, c.platform) AS source";
 
 fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
     qb.push(
@@ -122,9 +124,9 @@ fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
             .push_bind(names(&f.seniority, Seniority::as_str))
             .push(")");
     }
-    if !f.platform.is_empty() {
-        qb.push(" AND c.platform = ANY(")
-            .push_bind(names(&f.platform, Platform::as_str))
+    if !f.source.is_empty() {
+        qb.push(" AND COALESCE(j.feed, c.platform) = ANY(")
+            .push_bind(names(&f.source, Source::as_str))
             .push(")");
     }
     if !f.department.is_empty() {
@@ -206,6 +208,60 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<JobDetailRo
         .bind(id)
         .fetch_optional(pool)
         .await
+}
+
+/// A job board listing of a job: the board (a `Feed` name) and its page.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Listing {
+    pub feed: String,
+    pub url: String,
+}
+
+/// Where a job board lists this job, oldest listing first.
+pub async fn job_listings(pool: &PgPool, job_id: Uuid) -> sqlx::Result<Vec<Listing>> {
+    sqlx::query_as(
+        "SELECT feed, url FROM job_sources WHERE job_id = $1 ORDER BY first_seen_at, feed",
+    )
+    .bind(job_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Status of one job board for the Job sources page.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FeedRow {
+    pub id: String,
+    /// False when the board needs an API key that isn't set.
+    pub active: bool,
+    pub last_checked_at: Option<DateTime<Utc>>,
+    pub next_check_at: DateTime<Utc>,
+    pub last_status: Option<String>,
+    pub last_error: Option<String>,
+    pub last_pass_at: Option<DateTime<Utc>>,
+    /// A full pass is part way through.
+    pub passing: bool,
+    /// Open in-scope jobs only this board lists.
+    pub own_jobs: i64,
+    /// Listings matched to a job from an employer's board (or another job board).
+    pub matched: i64,
+    /// Listings at tracked employers whose own board doesn't have the job.
+    pub skipped: i64,
+}
+
+pub async fn list_feeds(pool: &PgPool) -> sqlx::Result<Vec<FeedRow>> {
+    sqlx::query_as(
+        "SELECT f.id, f.active, f.last_checked_at, f.next_check_at, f.last_status, f.last_error,
+                f.last_pass_at, f.sweep_cursor IS NOT NULL AS passing,
+                (SELECT count(*) FROM jobs j
+                 WHERE j.feed = f.id AND j.closed_at IS NULL AND j.in_scope) AS own_jobs,
+                (SELECT count(*) FROM job_sources s JOIN jobs j ON j.id = s.job_id
+                 WHERE s.feed = f.id AND j.feed IS DISTINCT FROM f.id) AS matched,
+                (SELECT count(*) FROM job_sources s
+                 WHERE s.feed = f.id AND s.job_id IS NULL) AS skipped
+         FROM feeds f ORDER BY f.id",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Companies listed in the Company filter before the user searches.
@@ -311,7 +367,9 @@ pub async fn list_companies(
     page: u32,
     page_size: u32,
 ) -> sqlx::Result<CompanyPage> {
-    const WHERE: &str = " WHERE ($1::text IS NULL OR c.name ILIKE $1 OR c.board_token ILIKE $1)
+    // Employers known only from job boards aren't checked, so they're left out.
+    const WHERE: &str = " WHERE c.platform <> 'external'
+         AND ($1::text IS NULL OR c.name ILIKE $1 OR c.board_token ILIKE $1)
          AND ($2 = 'all' OR ($2 = 'errors' AND c.last_status = 'error')
               OR ($2 = 'pending' AND c.last_status IS NULL))";
     let like = q
@@ -341,10 +399,10 @@ pub async fn list_companies(
     .fetch_all(pool)
     .await?;
     let summary = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM companies) AS companies,
+        "SELECT (SELECT count(*) FROM companies WHERE platform <> 'external') AS companies,
                 (SELECT count(*) FROM jobs WHERE closed_at IS NULL AND in_scope) AS open_jobs,
-                (SELECT count(*) FROM companies WHERE last_status = 'error') AS errors,
-                (SELECT count(*) FROM companies WHERE last_status IS NULL) AS pending",
+                (SELECT count(*) FROM companies WHERE last_status = 'error' AND platform <> 'external') AS errors,
+                (SELECT count(*) FROM companies WHERE last_status IS NULL AND platform <> 'external') AS pending",
     )
     .fetch_one(pool)
     .await?;
@@ -397,11 +455,13 @@ pub async fn insert_company(
 
 /// Makes a company due now; the worker picks it up within a few seconds.
 pub async fn request_check(pool: &PgPool, id: Uuid) -> sqlx::Result<bool> {
-    let updated =
-        sqlx::query("UPDATE companies SET next_check_at = now(), active = true WHERE id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?
-            .rows_affected();
+    let updated = sqlx::query(
+        "UPDATE companies SET next_check_at = now(), active = true
+             WHERE id = $1 AND platform <> 'external'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?
+    .rows_affected();
     Ok(updated > 0)
 }

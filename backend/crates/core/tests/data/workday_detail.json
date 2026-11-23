@@ -1,0 +1,36 @@
+{
+  "jobPostingInfo": {
+    "id": "e3e9f124949a103774bfcf5dfcc60000",
+    "title": "Principal Test Design Staff Engineer - Networking",
+    "jobDescription": "<p>NVIDIA’s Test Design Engineering (TDE) group designs, develops, validates, and deploys production test solutions for our networking portfolio, including network interface cards (NICs), SmartNICs and DPUs, NVLink systems, and Ethernet switches. Our teams in Israel and Vietnam support testing at contract manufacturer (CM) production sites worldwide. In this Santa Clara-based role, you will connect TDE with NVIDIA’s engineering and operations teams. You will help shape test strategies, coordinate technical decisions, and bring shared software and test capabilities into networking production te</p>",
+    "location": "US, CA, Remote",
+    "postedOn": "Posted 3 Days Ago",
+    "startDate": "2026-11-19",
+    "timeType": "Full time",
+    "jobReqId": "JR2027519",
+    "jobPostingId": "Principal-Test-Design-Staff-Engineer---Networking_JR2027519",
+    "jobPostingSiteId": "NVIDIAExternalCareerSite",
+    "country": {
+      "descriptor": "United States of America",
+      "id": "bc33aa3152ec42d4995f4791a106ed09"
+    },
+    "canApply": true,
+    "posted": true,
+    "includeResumeParsing": true,
+    "jobRequisitionLocation": {
+      "descriptor": "US, CA, Remote",
+      "country": {
+        "descriptor": "United States of America",
+        "id": "bc33aa3152ec42d4995f4791a106ed09",
+        "alpha2Code": "US"
+      }
+    },
+    "externalUrl": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Remote/Principal-Test-Design-Staff-Engineer---Networking_JR2027519",
+    "questionnaireId": "2f2764b3a82910064296831695150000"
+  },
+  "hiringOrganization": {
+    "name": "2100 NVIDIA USA",
+    "url": ""
+  },
+  "userAuthenticated": false
+}

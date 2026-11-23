@@ -219,7 +219,7 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
 /// Version of the rules in this file. Bump it whenever a rule changes how
 /// seniority, scope or a text-parsed salary come out; the worker then
 /// re-derives stored jobs (`ingest::renormalize`) without refetching them.
-pub const NORMALIZE_VERSION: i32 = 5;
+pub const NORMALIZE_VERSION: i32 = 6;
 
 /// Where a single location string points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -554,6 +554,11 @@ static FOREIGN_CITY: LazyLock<Regex> = LazyLock::new(|| {
         "paris",
         "berlin",
         "munich",
+        "münchen",
+        "köln",
+        "cologne",
+        "düsseldorf",
+        "stuttgart",
         "hamburg",
         "frankfurt",
         "amsterdam",
@@ -875,6 +880,10 @@ mod tests {
             ("Vancouver, Washington, United States of America", Place::Us),
             ("West Jordan, UT", Place::Us),
             ("Lebanon, PA", Place::Us),
+            // Job boards (Remote OK) write German cities in German.
+            ("Remote - München", Place::NonUs),
+            ("Remote - US Only", Place::Us),
+            ("Remote - Europe", Place::NonUs),
             ("NAMER", Place::Us),
             ("Can be remote", Place::Unknown),
             ("Hybrid", Place::Unknown),

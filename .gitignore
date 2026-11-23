@@ -12,7 +12,8 @@ frontend/next-env.d.ts
 *.tsbuildinfo
 
 # Local data (uploaded and generated files)
-data/
+# Only the root folder: crates/core/tests/data holds test fixtures.
+/data/
 
 # OS and editors
 .DS_Store

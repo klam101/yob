@@ -1,6 +1,6 @@
 //! Background worker. For now: keeps the job database fresh by checking
-//! company job boards on the schedule stored in Postgres. Later also
-//! embeddings, fit scoring and document generation.
+//! company job boards and job board APIs on the schedule stored in Postgres.
+//! Later also embeddings, fit scoring and document generation.
 
 use std::{
     sync::Arc,
@@ -11,7 +11,7 @@ use anyhow::Context;
 use tokio::{sync::Semaphore, task::JoinSet};
 use yob_core::{
     config::Config,
-    jobs::{Fetcher, discover, ingest, seed},
+    jobs::{Fetcher, discover, feeds, ingest, seed},
     shutdown, telemetry,
 };
 
@@ -51,6 +51,19 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(jobs = renormalized, "re-derived fields of stored jobs");
     }
 
+    feeds::sync(&db, &config.feed_keys)
+        .await
+        .context("setting up job boards")?;
+    let boards: Vec<&str> = feeds::enabled(&config.feed_keys)
+        .iter()
+        .map(|f| f.as_str())
+        .collect();
+    tracing::info!(?boards, "job boards enabled");
+    if config.feed_keys.usajobs.is_none() {
+        tracing::info!("USAJOBS skipped: set USAJOBS_API_KEY and USAJOBS_EMAIL in .env to add it");
+    }
+    let keys = Arc::new(config.feed_keys.clone());
+
     // Finds new company boards slowly in the background; progress is saved
     // per page, so stopping it at any point is safe.
     let crawl = tokio::spawn(discover::run_common_crawl(db.clone(), fetcher.clone()));
@@ -79,7 +92,20 @@ async fn main() -> anyhow::Result<()> {
             slot = slots.clone().acquire_owned() => slot?,
         };
 
-        // Due companies come first; spare slots verify discovered boards.
+        // Job boards come first (only a few, rarely due), then companies;
+        // spare slots verify discovered boards.
+        match feeds::claim_due(&db).await {
+            Ok(Some(feed)) => {
+                let (db, fetcher, keys) = (db.clone(), fetcher.clone(), keys.clone());
+                running.spawn(async move {
+                    feeds::check_and_record(&db, &fetcher, &keys, feed).await;
+                    drop(slot);
+                });
+                continue;
+            }
+            Ok(None) => {}
+            Err(e) => tracing::error!(error = %e, "couldn't claim due job boards"),
+        }
         match ingest::claim_due(&db, 1).await {
             Ok(mut due) if !due.is_empty() => {
                 let company = due.remove(0);

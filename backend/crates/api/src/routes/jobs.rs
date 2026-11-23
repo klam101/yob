@@ -11,7 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 use yob_core::jobs::{
-    EmploymentType, Platform, SalaryPeriod, Seniority, Workplace,
+    EmploymentType, SalaryPeriod, Seniority, Source, Workplace,
     store::{self, JobFilter, JobRow, JobSort},
 };
 
@@ -126,7 +126,9 @@ pub struct JobSummary {
     pub repost_count: u32,
     /// Open more than 60 days or reposted more than twice.
     pub possibly_stale: bool,
-    pub source: Platform,
+    /// The employer's hiring platform, or the job board when no employer
+    /// copy is tracked.
+    pub source: Source,
     pub apply_url: String,
     #[serde(rename = "match")]
     pub fit: Option<Match>,
@@ -162,6 +164,16 @@ pub struct JobDetail {
     pub workplace_note: Option<String>,
     pub breakdown: Option<MatchBreakdown>,
     pub keywords: Option<KeywordGap>,
+    /// Job boards that list this job, each linking to its listing. Boards
+    /// like Remotive and Remote OK require this credit and link.
+    pub listings: Vec<Listing>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Listing {
+    pub source: Source,
+    /// The job's page on the board.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -219,7 +231,7 @@ pub struct JobsQuery {
     pub department: Option<String>,
     /// Comma-separated company names.
     pub company: Option<String>,
-    /// Comma-separated: greenhouse, lever, ashby.
+    /// Comma-separated hiring platforms or job boards, e.g. greenhouse,workday,himalayas.
     pub source: Option<String>,
     #[param(inline)]
     pub posted_within: Option<PostedWithin>,
@@ -370,6 +382,16 @@ async fn get_job(
     let row = store::get_job(&state.db, uuid)
         .await?
         .ok_or_else(not_found)?;
+    let listings = store::job_listings(&state.db, uuid)
+        .await?
+        .into_iter()
+        .filter_map(|l| {
+            Some(Listing {
+                source: Source::parse(&l.feed)?,
+                url: l.url,
+            })
+        })
+        .collect();
 
     Ok(Json(JobDetail {
         job: summary(row.job),
@@ -381,6 +403,7 @@ async fn get_job(
         workplace_note: None,
         breakdown: None,
         keywords: None,
+        listings,
     }))
 }
 
@@ -423,7 +446,7 @@ fn summary(r: JobRow) -> JobSummary {
         closed_at: r.closed_at,
         repost_count: r.repost_count.max(0) as u32,
         possibly_stale: r.possibly_stale,
-        source: Platform::parse(&r.platform).unwrap_or(Platform::Greenhouse),
+        source: Source::parse(&r.source).unwrap_or(Source::Greenhouse),
         apply_url: r.apply_url,
         fit: None,
     }
@@ -438,7 +461,7 @@ fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
         seniority: parse_list(&q.seniority, "seniority", Seniority::parse)?,
         department: split_lower(&q.department),
         company: split_lower(&q.company),
-        platform: parse_list(&q.source, "source", Platform::parse)?,
+        source: parse_list(&q.source, "source", Source::parse)?,
         posted_after: q.posted_within.map(|w| Utc::now() - w.duration()),
         salary_min: q.salary_min.map(|v| v.min(i32::MAX as u32) as i32),
         hide_stale: q.hide_stale.unwrap_or(false),

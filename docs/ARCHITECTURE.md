@@ -21,7 +21,7 @@ Out of scope for v1: fully automatic applying, multiple users, mobile apps, host
                         ├──> API ──┐            ┌──> Ollama (local AI, native Windows app)
  Chrome extension ──────┘          │  Backend   │
         │                 Worker ──┘  (Rust)  ──┼──> Company job feeds (Greenhouse, Lever, Ashby, Workday...)
-        v                                       │
+        v                                       ├──> Job board APIs (Himalayas, Remote OK, USAJOBS...)
  Application pages                              ├──> Postgres + pgvector (all saved data)
  (company career sites)                         ├──> File storage (resumes, cover letters)
                                                 └──> Redis (queue, cache, rate limits, sessions)
@@ -58,8 +58,9 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 | `search_preferences` | Questionnaire answers: target titles, seniority, locations, remote, salary floor, industries, deal-breakers, plus saved named searches | `user_id` |
 | `profile_items` | Experience, education, projects, skills, each its own row with dates and bullets | `user_id` |
 | `answers` | Reusable form answers: work authorization, sponsorship, start date, demographics (encrypted), links | `user_id` |
-| `companies` | Name, careers site, platform (ATS), board id, polling interval, last checked | |
-| `jobs` | Title, location, salary, description, posted date, first seen, closed at, repost count, apply URL, source, content hash, embedding | `company_id` |
+| `companies` | Name, careers site, platform (ATS, or `external` for employers known only from a job board), board id, polling interval, last checked | |
+| `jobs` | Title, location, salary, description, posted date, first seen, closed at, repost count, apply URL, source, content hash, embedding; `feed` when only a job board lists it | `company_id` |
+| `feeds`, `job_sources` | Job boards with public APIs and their schedule; every board listing, pointing at the job it was matched to | `job_id` |
 | `job_matches` | Fit score and reasons for one user and one job | `user_id`, `job_id` |
 | `documents` | A generated resume or cover letter: content, file path, version | `user_id`, `job_id` |
 | `applications` | Status (saved, applied, interviewing, offer, rejected), dates, notes, documents sent | `user_id`, `job_id` |
@@ -69,7 +70,7 @@ Every personal table carries `user_id` even though v1 has one user, so adding us
 
 ## Job ingestion
 
-Jobs come straight from the hiring systems companies use for their career pages, not from job boards. hiringcafe works the same way at a much larger scale (about 2.8 million listings from 46 platforms): nothing pushes new jobs to it; it re-checks career pages often.
+Jobs come mainly from the hiring systems companies use for their career pages. hiringcafe works the same way at a much larger scale (about 2.8 million listings from 46 platforms): nothing pushes new jobs to it; it re-checks career pages often. Job boards with free public APIs fill gaps, matched against those first (see "Job boards" below).
 
 **Adapters per platform, not per company.** One adapter covers every company on that platform.
 
@@ -109,6 +110,14 @@ When no company is due, the worker verifies candidates through the same rate-lim
 4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Jobs are written 500 per statement (`jsonb_to_recordset`); unchanged open jobs aren't rewritten. Every check is logged in `company_checks`.
 5. **Rule changes reach stored jobs.** Each row records the `normalize_version` it was derived with, and whether its salary came from text or a structured field. When the rules in `normalize.rs` change, bump `NORMALIZE_VERSION`. On start, the worker re-derives seniority, scope and text-parsed salaries from the stored title, locations and description, without refetching. Salaries are read from ranges like "$120,000 - $150,000", "$120K to $150K" and "187,500 USD – 364,000 USD" (common on Workday).
 6. Later: new jobs are embedded and queued for scoring.
+
+**Job boards** (`feeds/`; status on Settings → Job boards). Himalayas (about 120,000 remote jobs), Remotive and Remote OK need no key; USAJOBS runs when `USAJOBS_API_KEY` and `USAJOBS_EMAIL` are set in `.env`. Boards are scheduled like companies (`feeds` table, same slots and lease): Himalayas every 30 minutes, Remote OK every 2 hours, Remotive and USAJOBS every 6.
+
+- **Reading:** each check reads the newest pages until one has nothing new, then the next 300 pages of a full pass that resumes from a saved cursor (a full Himalayas pass takes about 10 hours). Small boards fit in one page, so every check is a full pass.
+- **Quality:** a listing is kept only if it's open to US workers (the board's country list, or the location rules), has a company, a title and https links, and doesn't come from a known reposting service.
+- **Matching** (`company_key` and `title_key`, SQL functions with indexes): same company and title as an open job, with the same workplace or an overlapping location. A match on an employer's job (or another board's) adds only a `job_sources` row. If the employer is tracked but the job isn't there, the employer's board is trusted and nothing is added. Otherwise the listing becomes the board's own job (`jobs.feed`) under an inactive `external` company; when the employer's board is tracked later, the next check matches it and closes the board's copy. In November 2026, 49 of 79 Remote OK listings matched employer jobs we already had.
+- **Closing:** when a full pass ends, listings it didn't see are removed, and the board's own jobs with no listing left close.
+- **Credit:** the job page links each listing ("via Remote OK", "Also listed on Himalayas"), as Remotive and Remote OK require. Board links found in listings feed discovery.
 
 **Feed at scale.** Feed queries use partial indexes over open, in-scope jobs and a `pg_trgm` index for substring title search. Filter facets (top 60 departments, top 200 companies) are cached in Redis for 5 minutes; other companies are searched through `GET /jobs/companies`.
 

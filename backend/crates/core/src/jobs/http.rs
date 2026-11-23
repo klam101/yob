@@ -109,7 +109,7 @@ impl Fetcher {
     /// GETs `url` and parses the JSON body, waiting for the host's rate limit
     /// and retrying transient failures.
     pub async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, FetchError> {
-        self.request(url, None, "application/json", MAX_ATTEMPTS, parse_json)
+        self.request(url, None, &[], "application/json", MAX_ATTEMPTS, parse_json)
             .await
     }
 
@@ -123,6 +123,26 @@ impl Fetcher {
         self.request(
             url,
             Some(body),
+            &[],
+            "application/json",
+            MAX_ATTEMPTS,
+            parse_json,
+        )
+        .await
+    }
+
+    /// GETs JSON with extra request headers (an API key). A `user-agent`
+    /// header replaces the default one: USAJOBS asks for the key holder's
+    /// email there.
+    pub async fn get_json_with<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<T, FetchError> {
+        self.request(
+            url,
+            None,
+            headers,
             "application/json",
             MAX_ATTEMPTS,
             parse_json,
@@ -132,19 +152,20 @@ impl Fetcher {
 
     /// GETs `url` as text (an HTML page), with the same limits and retries.
     pub async fn get_text(&self, url: &str) -> Result<String, FetchError> {
-        self.request(url, None, "*/*", MAX_ATTEMPTS, Ok).await
+        self.request(url, None, &[], "*/*", MAX_ATTEMPTS, Ok).await
     }
 
     /// One attempt only, for callers with their own, slower retry schedule
     /// (Common Crawl, which is often overloaded).
     pub async fn get_text_once(&self, url: &str) -> Result<String, FetchError> {
-        self.request(url, None, "*/*", 1, Ok).await
+        self.request(url, None, &[], "*/*", 1, Ok).await
     }
 
     async fn request<T>(
         &self,
         url: &str,
         body: Option<&serde_json::Value>,
+        headers: &[(&str, &str)],
         accept: &str,
         attempts: u32,
         parse: impl Fn(String) -> Result<T, FetchError>,
@@ -158,7 +179,7 @@ impl Fetcher {
         loop {
             attempt += 1;
             self.wait_for_turn(&host).await;
-            match self.send(url, body, accept).await.and_then(&parse) {
+            match self.send(url, body, headers, accept).await.and_then(&parse) {
                 Ok(value) => return Ok(value),
                 Err(err) if err.retryable() && attempt < attempts => {
                     let wait = match &err {
@@ -177,14 +198,18 @@ impl Fetcher {
         &self,
         url: &str,
         body: Option<&serde_json::Value>,
+        headers: &[(&str, &str)],
         accept: &str,
     ) -> Result<String, FetchError> {
-        let req = match body {
+        let mut req = match body {
             Some(body) => self.client.post(url).json(body),
             None => self.client.get(url),
-        };
+        }
+        .header(reqwest::header::ACCEPT, accept);
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
         let resp = req
-            .header(reqwest::header::ACCEPT, accept)
             .send()
             .await
             .map_err(|e| FetchError::Network(e.without_url().to_string()))?;

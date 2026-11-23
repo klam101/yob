@@ -159,7 +159,7 @@ async fn list_companies(
     request_body = AddCompany,
     responses(
         (status = CREATED, body = CompanySource),
-        (status = BAD_REQUEST, body = ApiError, description = "Not a Greenhouse, Lever or Ashby board URL"),
+        (status = BAD_REQUEST, body = ApiError, description = "Not a supported job-board URL"),
         (status = NOT_FOUND, body = ApiError, description = "The board doesn't exist"),
         (status = CONFLICT, body = ApiError, description = "Already tracked"),
         (status = BAD_GATEWAY, body = ApiError, description = "The job board couldn't be reached"),
@@ -171,7 +171,8 @@ async fn add_company(
 ) -> Result<(StatusCode, Json<CompanySource>), ApiError> {
     let (platform, token) = parse_board_url(&body.url).ok_or_else(|| {
         ApiError::bad_request(
-            "Paste a Greenhouse, Lever or Ashby job-board link, like https://jobs.lever.co/company",
+            "Paste a job-board link from Greenhouse, Lever, Ashby, Workday, SmartRecruiters, \
+             Workable, Recruitee or BambooHR, like https://jobs.lever.co/company",
         )
     })?;
 

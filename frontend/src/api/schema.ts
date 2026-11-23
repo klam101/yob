@@ -82,6 +82,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feeds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every job board, with its check status and listing counts. */
+        get: operations["list_feeds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -285,6 +302,47 @@ export interface components {
             /** @description The biggest departments. */
             departments: components["schemas"]["FacetCount"][];
         };
+        /**
+         * @description A job board with a public API. Its jobs are matched against the
+         *     employers' own boards (see `jobs::feeds`).
+         * @enum {string}
+         */
+        Feed: "himalayas" | "remotive" | "remoteok" | "usajobs";
+        FeedStatus: {
+            /** @description False when the board needs an API key that isn't set in `.env`. */
+            enabled: boolean;
+            id: components["schemas"]["Feed"];
+            /** Format: date-time */
+            last_checked_at?: string | null;
+            last_error?: string | null;
+            /**
+             * Format: date-time
+             * @description When the last full pass over the board finished.
+             */
+            last_pass_at?: string | null;
+            /** @description "ok" or "error" after the first check; absent before it. */
+            last_status?: string | null;
+            /**
+             * Format: int32
+             * @description Listings matched to a job we already had from an employer's board.
+             */
+            matched: number;
+            /** Format: date-time */
+            next_check_at: string;
+            /**
+             * Format: int32
+             * @description Open jobs (US + remote) that only this board lists.
+             */
+            own_jobs: number;
+            /** @description A full pass is part way through (big boards take several checks). */
+            passing: boolean;
+            /**
+             * Format: int32
+             * @description Listings at tracked employers whose own board doesn't have the job;
+             *     not shown, since the employer's board is trusted.
+             */
+            skipped: number;
+        };
         Health: {
             database: boolean;
             redis: boolean;
@@ -298,6 +356,11 @@ export interface components {
             education?: string | null;
             job: components["schemas"]["JobSummary"];
             keywords?: components["schemas"]["KeywordGap"] | null;
+            /**
+             * @description Job boards that list this job, each linking to its listing. Boards
+             *     like Remotive and Remote OK require this credit and link.
+             */
+            listings: components["schemas"]["Listing"][];
             /** @description Extracted skills; empty until AI extraction exists. */
             skills: string[];
             /** @description One-paragraph plain-language summary. Absent until AI extraction exists. */
@@ -344,7 +407,11 @@ export interface components {
             repost_count: number;
             salary?: components["schemas"]["Salary"] | null;
             seniority: components["schemas"]["Seniority"];
-            source: components["schemas"]["Platform"];
+            /**
+             * @description The employer's hiring platform, or the job board when no employer
+             *     copy is tracked.
+             */
+            source: components["schemas"]["Source"];
             title: string;
             workplace: components["schemas"]["Workplace"];
         };
@@ -372,6 +439,11 @@ export interface components {
             /** @description Keywords from the job the profile doesn't mention. */
             missing: string[];
         };
+        Listing: {
+            source: components["schemas"]["Source"];
+            /** @description The job's page on the board. */
+            url: string;
+        };
         /** @description How well a job fits the user's profile. Absent until a resume is added. */
         Match: {
             label: components["schemas"]["MatchLabel"];
@@ -397,7 +469,7 @@ export interface components {
          * @description The hiring platform a company's job board runs on.
          * @enum {string}
          */
-        Platform: "greenhouse" | "lever" | "ashby";
+        Platform: "greenhouse" | "lever" | "ashby" | "workday" | "smartrecruiters" | "workable" | "recruitee" | "bamboohr";
         Salary: {
             currency: string;
             /** Format: int32 */
@@ -410,6 +482,12 @@ export interface components {
         SalaryPeriod: "year" | "hour";
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
+        /**
+         * @description Where a job came from: an employer's hiring platform, or a job board
+         *     when no employer copy is tracked. The feed's Source filter.
+         * @enum {string}
+         */
+        Source: "greenhouse" | "lever" | "ashby" | "workday" | "smartrecruiters" | "workable" | "recruitee" | "bamboohr" | "himalayas" | "remotive" | "remoteok" | "usajobs";
         /** @description Totals over every tracked company. */
         SourcesSummary: {
             /** Format: int32 */
@@ -486,7 +564,7 @@ export interface operations {
                     "application/json": components["schemas"]["CompanySource"];
                 };
             };
-            /** @description Not a Greenhouse, Lever or Ashby board URL */
+            /** @description Not a supported job-board URL */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -605,6 +683,25 @@ export interface operations {
             };
         };
     };
+    list_feeds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedStatus"][];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -649,7 +746,7 @@ export interface operations {
                 department?: string;
                 /** @description Comma-separated company names. */
                 company?: string;
-                /** @description Comma-separated: greenhouse, lever, ashby. */
+                /** @description Comma-separated hiring platforms or job boards, e.g. greenhouse,workday,himalayas. */
                 source?: string;
                 posted_within?: "24h" | "3d" | "1w" | "2w" | "1m" | "3m";
                 /** @description Minimum yearly salary; jobs without a listed salary are excluded. */

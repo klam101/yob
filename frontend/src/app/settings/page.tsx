@@ -1,8 +1,9 @@
 import { Suspense } from "react";
-import { type DiscoveryStats, api } from "@/api/client";
+import { type DiscoveryStats, type FeedStatus, api } from "@/api/client";
 import { ApiError } from "@/components/jobs/feed-states";
 import { AddCompanyForm } from "@/components/sources/add-company-form";
 import { BulkAddForm } from "@/components/sources/bulk-add-form";
+import { JobBoardsTable } from "@/components/sources/job-boards";
 import { SourcesTable } from "@/components/sources/sources-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/format";
@@ -29,6 +30,21 @@ export default function SettingsPage() {
         <AddCompanyForm />
         <Suspense fallback={<Skeleton className="h-96 rounded-2xl" />}>
           <Sources />
+        </Suspense>
+      </section>
+
+      <section id="boards" className="space-y-5 rounded-3xl border border-border/70 bg-card p-5 shadow-soft sm:p-7">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Job boards</h2>
+          <p className="text-sm text-muted-foreground">
+            Public job board APIs, read a few times a day. Most of their listings are jobs we already have from
+            the employer&apos;s own board, so those are matched up and the employer&apos;s copy is shown. Listings
+            only a board has are added, credited to the board with a link back. Only jobs open to US workers are
+            kept.
+          </p>
+        </div>
+        <Suspense fallback={<Skeleton className="h-48 rounded-2xl" />}>
+          <JobBoards />
         </Suspense>
       </section>
 
@@ -76,6 +92,17 @@ async function Sources() {
       <SourcesTable key={summary.companies} initial={result.data} />
     </div>
   );
+}
+
+async function JobBoards() {
+  let feeds: FeedStatus[] | undefined;
+  try {
+    feeds = (await api.GET("/feeds")).data;
+  } catch {
+    // Shown as unavailable below.
+  }
+  if (!feeds) return <ApiError message="Couldn't load job boards." />;
+  return <JobBoardsTable feeds={feeds} />;
 }
 
 async function Discovery() {

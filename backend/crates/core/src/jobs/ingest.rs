@@ -185,7 +185,7 @@ async fn check_company(
 
 /// One job as a JSON object for [`upsert_jobs`]. Out-of-scope jobs are kept
 /// without their description: enough to recognize them on the next check.
-fn job_json(job: &NormalizedJob) -> serde_json::Value {
+pub(crate) fn job_json(job: &NormalizedJob) -> serde_json::Value {
     let salary = job.salary.as_ref();
     let in_scope = normalize::us_scope(&job.locations);
     serde_json::json!({
