@@ -66,13 +66,10 @@ services:
       redis: { condition: service_healthy }
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        # Called from the browser, so it is the host address, not the service name.
-        NEXT_PUBLIC_API_URL: http://127.0.0.1:8080
+    build: ./frontend
     environment:
-      # Server-side rendering calls the API inside the Docker network.
+      # Server-side rendering and the browser's /api proxy (src/proxy.ts)
+      # call the API inside the Docker network.
       API_INTERNAL_URL: http://api:8080
     ports:
       - "127.0.0.1:3000:3000"

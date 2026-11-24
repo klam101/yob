@@ -58,7 +58,8 @@ User hardware: Windows, RTX 4060 Ti 8 GB, 16 GB RAM, i7-8700. Keep model choices
   - **UI components** are shadcn/ui (Radix base) in `frontend/src/components/ui/`, restyled HeroUI-like: large radii, soft shadows, `flat` and `bordered` tints, press scale. Add new ones with `npx shadcn@4.23.0 add <name>`, then match that style. Colors are tokens in `globals.css` (indigo `primary`, plus `success`, `warning`, `destructive`) with light and dark values.
   - **Feed filters live in the URL query** (`src/lib/filters.ts`), with comma-separated lists matching the API.
   - **Runtime data needs `<Suspense>`:** with Cache Components on, anything reading `searchParams`, `params`, `usePathname` or live API data must sit inside `<Suspense>`, or `next build` fails.
-  - **Server vs browser API calls:** server components call the API at `API_INTERNAL_URL` (`http://api:8080` in Docker); the browser uses `NEXT_PUBLIC_API_URL`.
+  - **Server vs browser API calls:** server components call the API at `API_INTERNAL_URL` (`http://api:8080` in Docker), using `serverApi()` from `src/api/server.ts` for anything personal so the session cookie is forwarded; the browser calls `/api` on the web app's own origin, which `src/proxy.ts` forwards to the API (keeps the session cookie first-party).
+  - **Login:** every page except `/login` needs a session (`src/proxy.ts` redirects); personal API routes take the `CurrentUser` extractor (`crates/api/src/routes/auth.rs`).
 - Build each feature in this order: API types and a stub endpoint, then the page against the stub, then the real backend (migration, core logic, worker), then an end-to-end check.
 
 ## Build order

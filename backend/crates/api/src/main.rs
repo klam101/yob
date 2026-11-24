@@ -20,6 +20,10 @@ async fn main() -> anyhow::Result<()> {
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
         .context("creating Redis pool")?;
 
+    if std::env::args().nth(1).as_deref() == Some("reset-password") {
+        return reset_password(&db, &redis).await;
+    }
+
     let fetcher = yob_core::jobs::Fetcher::new(redis.clone())?;
     let app = routes::router(
         state::AppState {
@@ -39,5 +43,24 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown::signal())
         .await?;
+    Ok(())
+}
+
+/// `api reset-password`: reads the email, then the new password, one per line
+/// on stdin (`./scripts/dev.sh reset-password` prompts for them). Ends every
+/// session for that account.
+async fn reset_password(db: &yob_db::PgPool, redis: &deadpool_redis::Pool) -> anyhow::Result<()> {
+    let mut lines = std::io::stdin().lines();
+    let email = lines.next().context("expected the email on stdin")??;
+    let password = lines
+        .next()
+        .context("expected the new password on stdin")??;
+    yob_core::auth::set_password(db, redis, &email, &password)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!(
+        "Password updated for {}. Every session was logged out.",
+        email.trim()
+    );
     Ok(())
 }

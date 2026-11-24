@@ -49,6 +49,7 @@ Optional: to add US federal jobs from USAJOBS, get a free key at https://develop
 | `psql` | Opens a Postgres shell |
 | `redis` | Opens a Redis shell |
 | `discover [file]` | Shows company discovery progress. With a file of job-board links (one per line), queues them to be checked and added. Needs the API running |
+| `reset-password` | Sets a new password for the login account from a prompt, and logs out every session. For when you forget it |
 | `reset-db` | Deletes all database data. Asks you to type `yes` first |
 
 URLs: web app http://127.0.0.1:3000, API health http://127.0.0.1:8080/health, OpenAPI spec http://127.0.0.1:8080/openapi.json.

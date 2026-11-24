@@ -9,6 +9,7 @@ use yob_core::config::Config;
 
 use crate::{openapi::ApiDoc, state::AppState};
 
+pub mod auth;
 mod companies;
 mod feeds;
 mod health;
@@ -18,6 +19,7 @@ mod jobs;
 pub fn router(state: AppState, config: &Config) -> anyhow::Result<Router> {
     let (router, spec) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .merge(health::routes())
+        .merge(auth::routes())
         .merge(companies::routes())
         .merge(feeds::routes())
         .merge(jobs::routes())

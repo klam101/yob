@@ -43,6 +43,7 @@ Data
   redis            Open a Redis shell
   discover [file]  Show company discovery progress; with a file of job-board
                    links (one per line), queue them to be checked and added
+  reset-password   Set a new password for the login account (logs out every session)
   reset-db         Delete ALL database and volume data (asks first)
 EOF
 }
@@ -227,7 +228,9 @@ cmd_check() {
   say "frontend lint"
   (cd frontend && npm run lint)
   say "frontend TypeScript check"
-  (cd frontend && npx tsc --noEmit)
+  # Route types are generated; refresh them so moved or deleted pages don't
+  # leave stale ones behind.
+  (cd frontend && npx next typegen >/dev/null && npx tsc --noEmit)
   ok "All checks passed"
 }
 
@@ -268,6 +271,21 @@ cmd_fmt() {
   ok "Rust code formatted"
 }
 
+cmd_reset_password() {
+  local email pw pw2
+  read -r -p "Account email: " email
+  read -r -s -p "New password (at least 10 characters): " pw; echo
+  read -r -s -p "Repeat it: " pw2; echo
+  [ "$pw" = "$pw2" ] || fail "The passwords don't match."
+  # Sent on stdin, so the password never appears in the process list.
+  if [ -n "$(docker compose ps -q api 2>/dev/null)" ]; then
+    printf '%s\n%s\n' "$email" "$pw" | docker compose exec -T api app reset-password
+  else
+    need cargo "Install Rust: winget install Rustlang.Rustup"
+    printf '%s\n%s\n' "$email" "$pw" | (cd backend && cargo run -q --bin api -- reset-password)
+  fi
+}
+
 cmd_psql() {
   # Uses the container's own POSTGRES_USER and POSTGRES_DB.
   docker_tty compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
@@ -305,6 +323,7 @@ case "$command" in
   fmt)      cmd_fmt ;;
   discover) cmd_discover "$@" ;;
   psql)     cmd_psql ;;
+  reset-password) cmd_reset_password ;;
   redis)    cmd_redis ;;
   reset-db) cmd_reset_db ;;
   *)

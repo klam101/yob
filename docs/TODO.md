@@ -83,7 +83,9 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Extension: "Save this job" for a LinkedIn or Indeed page you're viewing (no crawling)
 
 ### 2. Login and saved searches
-- [ ] Single login account (argon2 password, sessions in Redis); sign-ups stay off
+- [x] Single login account: first-visit sign-up only while no account exists, argon2 passwords, sessions in Redis, 5 failed logins per 15 minutes
+- [x] Browser calls the API through the web app's `/api` proxy (first-party cookie); pages redirect to `/login` without a session
+- [x] Account menu (theme, log out); `./scripts/dev.sh reset-password`
 - [ ] Save, rename and delete named searches (stored filter query)
 
 ### 3. Onboarding questionnaire
@@ -138,4 +140,3 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Himalayas: a 429 partway through ends the check early instead of failing it, and the next check waits 3 hours (it allows about 100 pages, then refuses for hours)
 - [x] `./scripts/dev.sh ollama` and Ollama status in `/health`
 - [ ] Start Ollama and pull the models (`./scripts/dev.sh ollama`) before the profile work
-- [ ] Login (stage 1): the browser calls the API on another port, so session cookies need `127.0.0.1` on both, or a Next.js proxy for API calls

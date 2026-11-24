@@ -5,14 +5,15 @@ import type { components, paths } from "./schema";
  * Typed client for the yob API. Paths, params and response bodies come from
  * `schema.ts`, generated from the API's OpenAPI spec with `npm run typegen`.
  *
- * Server components and the browser reach the API at different addresses:
- * inside Docker the server uses the `api` service name, while the browser
- * always goes through the port published on localhost.
+ * The browser calls `/api` on this same origin; `src/proxy.ts` forwards it to
+ * the API, so the session cookie stays first-party. Server components call
+ * the API directly (the `api` service inside Docker); personal endpoints need
+ * the visitor's cookie, so use `serverApi()` for those.
  */
 const baseUrl =
   typeof window === "undefined"
     ? (process.env.API_INTERNAL_URL ?? "http://127.0.0.1:8080")
-    : (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8080");
+    : "/api";
 
 export const api = createClient<paths>({ baseUrl });
 

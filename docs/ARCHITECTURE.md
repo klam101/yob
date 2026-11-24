@@ -68,6 +68,8 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 
 Every personal table carries `user_id` even though v1 has one user, so adding users later is a login change, not a schema rewrite.
 
+**Login.** One account. Sign-up works only while `users` is empty, so the first visit creates the account and after that there is only login (checked in the API, under a table lock). Passwords are argon2id hashes. A session is a random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie (`yob_session`); Redis keeps only its SHA-256 hash with a 30-day expiry that each request refreshes, so a Redis dump can't be replayed. Failed logins are limited to 5 per email per 15 minutes. The browser calls the API through the web app's `/api` path (`frontend/src/proxy.ts` forwards it), so the cookie is first-party; the same proxy redirects pages to `/login` without a session. Personal API routes take the `CurrentUser` extractor and answer 401 without a session. `./scripts/dev.sh reset-password` sets a new password and ends every session.
+
 ## Job ingestion
 
 Jobs come mainly from the hiring systems companies use for their career pages. hiringcafe works the same way at a much larger scale (about 2.8 million listings from 46 platforms): nothing pushes new jobs to it; it re-checks career pages often. Job boards with free public APIs fill gaps, matched against those first (see "Job boards" below).
@@ -205,7 +207,7 @@ yob/
 | Web server | `axum`, `tower-http` | Routing, CORS, logging, compression |
 | Async runtime | `tokio` | |
 | Database | `sqlx`, `pgvector` | Compile-time checked queries, migrations |
-| Queue, cache, rate limits, sessions | `redis`, `deadpool-redis`, `tower-sessions-redis-store` | Redis Streams for the queue |
+| Queue, cache, rate limits, sessions | `redis`, `deadpool-redis` | Redis Streams for the queue; sessions are a few Redis keys in `core::auth` rather than `tower-sessions`, whose Redis store brings a second Redis client |
 | Schedule | `tokio-cron-scheduler` | Queues feed checks on each company's interval |
 | JSON | `serde`, `serde_json` | |
 | HTTP client | `reqwest` | Job feeds |
@@ -214,7 +216,7 @@ yob/
 | Reading resumes | `pdf-extract`, `docx-rs` | |
 | Writing resumes | `typst`, `docx-rs` | ATS-safe PDFs |
 | File storage | `object_store` | Local folder now, S3 later |
-| Login | `argon2`, `tower-sessions`, `jsonwebtoken` | Ready for multiple users later |
+| Login | `argon2`, `axum-extra` cookies; `jsonwebtoken` later for extension tokens | Ready for multiple users later |
 | Encryption | `aes-gcm` | Sensitive answers |
 | Shared types | `utoipa` | OpenAPI spec, TS types generated from it |
 | Config, errors, logs | `dotenvy`, `thiserror`, `anyhow`, `tracing` | |
