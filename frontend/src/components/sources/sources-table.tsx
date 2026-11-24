@@ -103,7 +103,7 @@ export function SourcesTable({ initial }: { initial: CompaniesPage }) {
 
       <div
         className={cn(
-          "overflow-x-auto rounded-2xl border border-border/70 transition-opacity",
+          "relative overflow-x-auto rounded-2xl border border-border/70 transition-opacity",
           loading && "opacity-60",
         )}
       >

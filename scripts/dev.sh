@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 CONCURRENTLY="concurrently@10.0.7"
-API_URL="http://localhost:8080"
-WEB_URL="http://localhost:3000"
+API_URL="http://127.0.0.1:8080"
+WEB_URL="http://127.0.0.1:3000"
 
 usage() {
   cat <<'EOF'
@@ -18,6 +18,7 @@ Usage: ./scripts/dev.sh <command> [args]     (Git Bash)
 
 First time
   setup            Check tools, create .env (random DB password), install frontend packages
+  ollama           Check the Ollama app is running and pull the models yob uses
 
 Full stack in Docker
   up               Build and start everything, wait until healthy, print URLs
@@ -98,7 +99,35 @@ cmd_setup() {
 
   say "Installing frontend packages"
   (cd frontend && npm ci)
+  if ! ollama_up; then
+    echo "Note: Ollama isn't running. The job feed works without it; the profile,"
+    echo "matching and document features need it. Install it (winget install Ollama.Ollama),"
+    echo "start it, then run ./scripts/dev.sh ollama"
+  fi
   ok "Setup done. Next: ./scripts/dev.sh up  (or ./scripts/dev.sh dev)"
+}
+
+# Keep in step with backend/crates/core/src/ollama.rs.
+OLLAMA_URL_LOCAL="http://127.0.0.1:11434"
+OLLAMA_MODELS="qwen3-embedding:4b qwen3:8b"
+
+ollama_up() { curl -fsS -m 3 "$OLLAMA_URL_LOCAL/api/tags" >/dev/null 2>&1; }
+
+cmd_ollama() {
+  need curl "curl comes with Git Bash."
+  ollama_up || fail "Ollama isn't answering at $OLLAMA_URL_LOCAL. Install it (winget install Ollama.Ollama) and start the Ollama app."
+  need ollama "The Ollama app is running but its 'ollama' command isn't on PATH. Open a new terminal."
+  local tags model
+  tags=$(curl -fsS -m 5 "$OLLAMA_URL_LOCAL/api/tags")
+  for model in $OLLAMA_MODELS; do
+    if grep -q "\"name\":\"$model\"" <<<"$tags"; then
+      ok "$model is ready"
+    else
+      say "Pulling $model (several GB, one time)"
+      ollama pull "$model"
+    fi
+  done
+  ok "Ollama is ready"
 }
 
 cmd_up() {
@@ -264,6 +293,7 @@ shift || true
 case "$command" in
   help|-h|--help) usage ;;
   setup)    cmd_setup ;;
+  ollama)   cmd_ollama ;;
   up)       cmd_up ;;
   down)     cmd_down ;;
   status)   cmd_status ;;

@@ -44,12 +44,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                   <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-soft">
                     y
                   </span>
-                  <span className="text-sm font-semibold tracking-tight md:hidden">yob</span>
+                  <span className="hidden text-sm font-semibold tracking-tight sm:inline md:hidden">yob</span>
                 </Link>
                 <Suspense fallback={<NavLinks pathname="" />}>
                   <Nav />
                 </Suspense>
-                <div className="flex items-center gap-1 md:mt-auto md:flex-col">
+                <div className="flex items-center gap-0.5 sm:gap-1 md:mt-auto md:flex-col">
                   <ThemeToggle />
                   <ApiStatus />
                 </div>

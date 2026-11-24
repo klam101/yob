@@ -13,7 +13,7 @@ const HOME: Record<Feed, string> = {
 /** Status of each job board: jobs it added, listings matched to jobs we already had, and check times. */
 export function JobBoardsTable({ feeds }: { feeds: FeedStatus[] }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border/70">
+    <div className="relative overflow-x-auto rounded-2xl border border-border/70">
       <table className="w-full min-w-[42rem] text-sm">
         <thead className="bg-muted/60 text-left text-xs text-muted-foreground">
           <tr>

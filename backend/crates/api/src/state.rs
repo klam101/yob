@@ -9,4 +9,5 @@ pub struct AppState {
     /// For verifying job boards when a company is added. Shares the
     /// per-host rate limit with the worker through Redis.
     pub fetcher: Fetcher,
+    pub ollama_url: String,
 }

@@ -48,8 +48,8 @@ impl Config {
             database_url: required("DATABASE_URL")?,
             redis_url: required("REDIS_URL")?,
             api_addr: optional("API_ADDR", "127.0.0.1:8080"),
-            web_origin: optional("WEB_ORIGIN", "http://localhost:3000"),
-            ollama_url: optional("OLLAMA_URL", "http://localhost:11434"),
+            web_origin: optional("WEB_ORIGIN", "http://127.0.0.1:3000"),
+            ollama_url: optional("OLLAMA_URL", "http://127.0.0.1:11434"),
             feed_keys: FeedKeys { usajobs },
         })
     }

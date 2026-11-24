@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typegen": "openapi-typescript http://localhost:8080/openapi.json -o src/api/schema.ts"
+    "typegen": "openapi-typescript http://127.0.0.1:8080/openapi.json -o src/api/schema.ts"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",

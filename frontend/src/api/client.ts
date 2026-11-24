@@ -12,7 +12,7 @@ import type { components, paths } from "./schema";
 const baseUrl =
   typeof window === "undefined"
     ? (process.env.API_INTERNAL_URL ?? "http://127.0.0.1:8080")
-    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080");
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8080");
 
 export const api = createClient<paths>({ baseUrl });
 

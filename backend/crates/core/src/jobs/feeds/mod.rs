@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 use super::{
     discover,
-    http::Fetcher,
+    http::{FetchError, Fetcher},
     ingest,
     model::{Feed, NormalizedJob, Salary, Workplace},
     normalize, sources,
@@ -47,6 +47,10 @@ use crate::config::FeedKeys;
 const LEASE_MINUTES: i32 = 60;
 /// Newest pages read per check before the full pass continues.
 const HEAD_PAGES: usize = 50;
+/// Wait after a board cuts a check off with a 429. Himalayas allows about
+/// 100 pages and then refuses for hours (November 2026), so retrying every
+/// 30 minutes only spends one request to be refused again.
+const RATE_LIMITED_WAIT_MINUTES: i32 = 180;
 
 /// One listing on a job board.
 #[derive(Debug, Clone)]
@@ -123,11 +127,13 @@ struct Schedule {
 
 fn schedule(feed: Feed) -> Schedule {
     match feed {
-        // 300 pages of 20 a check at one request a second: about 5 minutes,
-        // and a full pass in about 10 hours.
+        // Himalayas allows roughly 100 pages before refusing for hours
+        // (November 2026), so most checks end early with a 429 and the next
+        // waits RATE_LIMITED_WAIT_MINUTES. The newest pages are read first, so
+        // new jobs keep arriving; a full pass takes days.
         Feed::Himalayas => Schedule {
             every_minutes: 30,
-            pass_pages: 300,
+            pass_pages: 150,
         },
         // Remotive asks for at most 4 calls a day.
         Feed::Remotive => Schedule {
@@ -222,6 +228,17 @@ pub struct FeedStats {
     pub skipped: usize,
     /// Set when a full pass finished: the board's jobs it closed.
     pub closed: Option<usize>,
+    /// The board rate-limited us partway; the pass resumes next check.
+    pub rate_limited: bool,
+}
+
+/// A 429 after at least one page isn't a failure: progress is saved every
+/// page, so the check stops there and the next one carries on.
+fn rate_limited(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<FetchError>(),
+        Some(FetchError::RateLimited(_))
+    )
 }
 
 /// Checks one board and records the outcome and next check time.
@@ -231,7 +248,8 @@ pub async fn check_and_record(pool: &PgPool, fetcher: &Fetcher, keys: &FeedKeys,
         Ok(s) => {
             tracing::info!(
                 feed = feed.as_str(), pages = s.pages, seen = s.seen, kept = s.kept, new = s.new,
-                matched = s.matched, skipped = s.skipped, closed = ?s.closed, "checked job board"
+                matched = s.matched, skipped = s.skipped, closed = ?s.closed,
+                rate_limited = s.rate_limited, "checked job board"
             );
             sqlx::query(
                 "UPDATE feeds SET last_checked_at = now(), last_status = 'ok', last_error = NULL,
@@ -239,7 +257,11 @@ pub async fn check_and_record(pool: &PgPool, fetcher: &Fetcher, keys: &FeedKeys,
                  WHERE id = $1",
             )
             .bind(feed.as_str())
-            .bind(schedule(feed).every_minutes)
+            .bind(if s.rate_limited {
+                RATE_LIMITED_WAIT_MINUTES.max(schedule(feed).every_minutes)
+            } else {
+                schedule(feed).every_minutes
+            })
             .execute(pool)
             .await
         }
@@ -288,7 +310,14 @@ async fn check(
     // The newest pages, until one has nothing new.
     let mut next: Option<String> = None;
     for _ in 0..HEAD_PAGES {
-        let page = fetch_page(fetcher, keys, feed, next.as_deref()).await?;
+        let page = match fetch_page(fetcher, keys, feed, next.as_deref()).await {
+            Ok(page) => page,
+            Err(e) if stats.pages > 0 && rate_limited(&e) => {
+                stats.rate_limited = true;
+                return Ok(stats);
+            }
+            Err(e) => return Err(e),
+        };
         stats.pages += 1;
         let fresh = save(pool, feed, page.postings, &mut known, &mut stats).await?;
         match page.next {
@@ -311,7 +340,14 @@ async fn check(
         None => (next, started),
     };
     for _ in 0..schedule(feed).pass_pages {
-        let page = fetch_page(fetcher, keys, feed, cursor.as_deref()).await?;
+        let page = match fetch_page(fetcher, keys, feed, cursor.as_deref()).await {
+            Ok(page) => page,
+            Err(e) if stats.pages > 0 && rate_limited(&e) => {
+                stats.rate_limited = true;
+                break;
+            }
+            Err(e) => return Err(e),
+        };
         stats.pages += 1;
         save(pool, feed, page.postings, &mut known, &mut stats).await?;
         cursor = page.next;

@@ -113,7 +113,7 @@ When no company is due, the worker verifies candidates through the same rate-lim
 
 **Job boards** (`feeds/`; status on Settings → Job boards). Himalayas (about 120,000 remote jobs), Remotive and Remote OK need no key; USAJOBS runs when `USAJOBS_API_KEY` and `USAJOBS_EMAIL` are set in `.env`. Boards are scheduled like companies (`feeds` table, same slots and lease): Himalayas every 30 minutes, Remote OK every 2 hours, Remotive and USAJOBS every 6.
 
-- **Reading:** each check reads the newest pages until one has nothing new, then the next 300 pages of a full pass that resumes from a saved cursor (a full Himalayas pass takes about 10 hours). Small boards fit in one page, so every check is a full pass.
+- **Reading:** each check reads the newest pages until one has nothing new, then the next stretch of a full pass that resumes from a saved cursor. A 429 partway through ends that check early without counting as a failure, because progress is saved every page; the next check then waits 3 hours. Himalayas allows roughly 100 pages before refusing for hours, so its full pass takes days, while the newest pages, read first, keep new jobs arriving. Small boards fit in one page, so every check is a full pass.
 - **Quality:** a listing is kept only if it's open to US workers (the board's country list, or the location rules), has a company, a title and https links, and doesn't come from a known reposting service.
 - **Matching** (`company_key` and `title_key`, SQL functions with indexes): same company and title as an open job, with the same workplace or an overlapping location. A match on an employer's job (or another board's) adds only a `job_sources` row. If the employer is tracked but the job isn't there, the employer's board is trusted and nothing is added. Otherwise the listing becomes the board's own job (`jobs.feed`) under an inactive `external` company; when the employer's board is tracked later, the next check matches it and closes the board's copy. In November 2026, 49 of 79 Remote OK listings matched employer jobs we already had.
 - **Closing:** when a full pass ends, listings it didn't see are removed, and the board's own jobs with no listing left close.
@@ -181,7 +181,7 @@ All AI runs free through Ollama, installed as the native Windows app so it uses 
 - Ollama loads and unloads models as needed, so both don't need to fit at once. With 16 GB of system RAM, avoid heavy apps during big batches.
 - Changing the embedding model means re-embedding all jobs; vectors from different models don't mix.
 - Use Ollama's JSON-schema `format` option for anything parsed by code.
-- Confirm exact model tags against the Ollama library when setting up.
+- Confirm exact model tags against the Ollama library when setting up. `./scripts/dev.sh ollama` checks the app is running and pulls both models; the model names live in `core::ollama`, and `/health` reports `ollama` and `missing_models` (Ollama being down doesn't mark the API degraded, since the job feed doesn't need it).
 
 ## Tech stack
 
@@ -223,7 +223,7 @@ Crate names are from memory; confirm and pin versions when adding them.
 
 ## Running it locally
 
-Deployment is how the app is packaged and started; hosting is where it runs. For now both are your PC: `docker compose up`, then open `http://localhost:3000`.
+Deployment is how the app is packaged and started; hosting is where it runs. For now both are your PC: `docker compose up`, then open `http://127.0.0.1:3000`.
 
 | Service | Image or build | Port |
 | --- | --- | --- |

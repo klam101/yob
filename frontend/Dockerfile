@@ -8,7 +8,7 @@ RUN npm ci
 FROM node:24-alpine AS build
 WORKDIR /app
 # Inlined into the browser bundle at build time, so it must be a build arg.
-ARG NEXT_PUBLIC_API_URL=http://localhost:8080
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules

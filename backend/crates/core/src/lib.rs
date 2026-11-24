@@ -3,6 +3,7 @@
 //! other only through their public functions.
 
 pub mod config;
+pub mod ollama;
 pub mod shutdown;
 pub mod telemetry;
 

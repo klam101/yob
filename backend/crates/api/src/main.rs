@@ -21,7 +21,15 @@ async fn main() -> anyhow::Result<()> {
         .context("creating Redis pool")?;
 
     let fetcher = yob_core::jobs::Fetcher::new(redis.clone())?;
-    let app = routes::router(state::AppState { db, redis, fetcher }, &config)?;
+    let app = routes::router(
+        state::AppState {
+            db,
+            redis,
+            fetcher,
+            ollama_url: config.ollama_url.clone(),
+        },
+        &config,
+    )?;
 
     let listener = tokio::net::TcpListener::bind(&config.api_addr)
         .await

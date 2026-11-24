@@ -133,4 +133,9 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Database tests for the ingest rules (closing, reposts); browser tests for the feed
 - [ ] Review the 14 high-severity `npm audit` warnings from the Next.js starter
 - [ ] Try Ctrl+C in `./scripts/dev.sh dev` to confirm it stops everything
-- [ ] Phone width (390px): the top bar (theme toggle and API status) and the Settings → Job sources section scroll the page sideways
+- [x] Phone width (390px): the top bar and the Settings → Job sources table no longer scroll the page sideways
+- [x] The app works when opened at `127.0.0.1:3000` (CORS allowed only `localhost`); local URLs default to `127.0.0.1`
+- [x] Himalayas: a 429 partway through ends the check early instead of failing it, and the next check waits 3 hours (it allows about 100 pages, then refuses for hours)
+- [x] `./scripts/dev.sh ollama` and Ollama status in `/health`
+- [ ] Start Ollama and pull the models (`./scripts/dev.sh ollama`) before the profile work
+- [ ] Login (stage 1): the browser calls the API on another port, so session cookies need `127.0.0.1` on both, or a Next.js proxy for API calls

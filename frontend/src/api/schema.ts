@@ -106,7 +106,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Checks that the API can reach Postgres and Redis. */
+        /** Checks that the API can reach Postgres, Redis and Ollama. */
         get: operations["health"];
         put?: never;
         post?: never;
@@ -345,6 +345,13 @@ export interface components {
         };
         Health: {
             database: boolean;
+            /** @description Models yob needs that Ollama hasn't pulled (`./scripts/dev.sh ollama`). */
+            missing_models: string[];
+            /**
+             * @description Whether the local Ollama app answers. Not needed for the job feed, so
+             *     it doesn't affect `status`.
+             */
+            ollama: boolean;
             redis: boolean;
             /** @description "ok" when every dependency answered, otherwise "degraded". */
             status: string;
