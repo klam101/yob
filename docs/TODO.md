@@ -23,25 +23,69 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [x] Jobs feed: search bar, filter chips, All filters panel with live count, sort, pagination, empty and error states
 - [x] Job detail page: match card, requirements, keyword gap, description, company tab, people-search links
 
+### 1. Job feed: real data (`feature/job-ingestion`)
+- [x] Migrations: `companies`, `jobs` (full-text search, USD-comparable salary), `company_checks` history
+- [x] Normalized job shape and content hash in `core::jobs`
+- [x] Greenhouse, Lever and Ashby adapters on their official public job-board APIs
+- [x] Job descriptions cleaned to safe HTML (ammonia) before storing
+- [x] Workplace, job type, seniority and salary from feed fields, titles and description text
+- [x] 170 verified starter companies (about 23,000 open jobs); add a company from its board URL
+- [x] Worker: incremental checks, only new jobs downloaded, jobs closed after two missed checks, reposts detected, stale flag
+- [x] Adaptive schedule stored in Postgres (15 minutes, 6 hours or daily) with a per-host rate limit in Redis
+- [x] `/jobs` endpoints read the database; fixtures deleted
+- [x] Settings → Job sources page: companies, status, add by URL, check now
+- [x] Daily pruning of descriptions on jobs closed more than 90 days
+
 ## To do
 
-### 1. Job feed: real data
-- [ ] Migration: `companies` and `jobs` tables (fields from ARCHITECTURE.md) with indexes and full-text search
-- [ ] Normalized job type and content hash in `core::jobs`
-- [ ] Greenhouse adapter (confirm the public board API endpoint first)
-- [ ] Lever adapter
-- [ ] Ashby adapter
-- [ ] Clean job descriptions to safe HTML before storing
-- [ ] Derive workplace, job type and seniority from feed fields and titles; parse salary from text when the feed has none
-- [ ] Starter list of companies on each platform, plus adding a company from its board URL
-- [ ] Worker: fetch each company's job ids, download only new jobs, close missing ones, detect reposts, flag stale jobs
-- [ ] Adaptive polling (15 minutes for active companies, 6 to 24 hours for quiet ones) with a per-host rate limit in Redis
-- [ ] Job queue on Redis Streams and a `tasks` history table
-- [ ] Replace the stub `/jobs` endpoints with database queries; delete the fixtures
-- [ ] Check end to end: the feed shows fresh jobs from a few hundred companies
+### 1b. Coverage (roadmap and details: [SOURCES.md](SOURCES.md))
+
+Goal: virtually every US or remote job from credible sources. No LinkedIn or Indeed scraping.
+
+**Company discovery and scale** (on `feature/job-ingestion`)
+- [x] Keep only US and remote jobs at import (out-of-scope jobs stored as small rows without descriptions)
+- [x] Re-normalize stored jobs when parsing rules change (seniority, scope, text-parsed salary), without refetching
+- [x] Faster imports: batch inserts instead of one statement per job; unchanged jobs aren't rewritten
+- [x] Discover Greenhouse, Lever and Ashby boards from Common Crawl (slow, resumable, retrying) and verify them before adding
+- [x] Discover boards from links inside job descriptions
+- [x] Queue many board links at once (Settings, or `./scripts/dev.sh discover <file>`)
+- [x] Feed at scale: trigram index for title search, cached facets, searchable Company filter
+- [x] Job sources page: discovery stats and a paginated company table
+- [x] Company names for Lever and Ashby boards, read from the board page title
+- [ ] Confirm a full Common Crawl pass once the index is answering. On November 20, 2026 it answered 3 pages (1,291 Greenhouse candidates, 929 added as companies), then returned 504s through November 22
+- [ ] Measure `/jobs` at 200k+ jobs (release build) and add indexes where `EXPLAIN` shows scans
+- [ ] Tune the US scope lists from what lands out of scope (`SELECT locations … WHERE NOT in_scope`)
+
+**More ATS platforms**
+- [x] Workday (POST to the careers page's JSON endpoint, detail per new US job)
+- [x] SmartRecruiters, Workable, Recruitee, BambooHR
+- [x] Discovery for each new platform (Common Crawl patterns, links in postings, pasted links)
+- [x] Worker check slots: a slow board (large Workday tenant) no longer holds up other checks
+- [x] Salaries written as "187,500 USD – 364,000 USD" (Workday)
+- [ ] Workday tenants that stop listing at 2,000 jobs (NVIDIA, Target): split the listing by location facets
+- [ ] Find more Workday tenants (no public directory; Common Crawl `*.myworkdayjobs.com` is the main hope)
+- [ ] Later: Breezy, JazzHR, Personio, Teamtailor, Jobvite, iCIMS, SuccessFactors, Oracle, Eightfold
+
+**Job board APIs**
+- [x] De-duplication: the employer's job wins (company + title + workplace or location); every listing kept as attribution in `job_sources`
+- [x] Himalayas, Remotive, Remote OK, with "via" and "Also listed on" links on the job page
+- [x] USAJOBS when `USAJOBS_API_KEY` and `USAJOBS_EMAIL` are in `.env`
+- [x] Settings → Job boards: status, jobs only on a board, listings matched
+- [ ] Run USAJOBS with a real key and compare its answer with the documented shape the adapter was built from
+- [ ] Better company matching across boards: "Oura Health Ltd" (Himalayas) and "ŌURA" (Remote OK) are still two companies
+- [ ] Adzuna, if the snippet-only descriptions and daily call limit turn out to be worth it (skipped for now; Arbeitnow skipped: German jobs)
+
+**Career pages, staffing and long tail**
+- [ ] Career-page crawler reading schema.org JobPosting (sitemaps, robots.txt), with Web Data Commons discovery
+- [ ] "Staffing agency" tag and filter (Himalayas adds many: staffing firms and AI-training gig platforms like micro1 and Mercor)
+- [ ] Niche boards (government, higher ed, nonprofit) via RSS and APIs
+- [ ] Hacker News "Who is hiring" via the Algolia API, parsed by the local model
+- [ ] Extension: "Save this job" for a LinkedIn or Indeed page you're viewing (no crawling)
 
 ### 2. Login and saved searches
-- [ ] Single login account (argon2 password, sessions in Redis); sign-ups stay off
+- [x] Single login account: first-visit sign-up only while no account exists, argon2 passwords, sessions in Redis, 5 failed logins per 15 minutes
+- [x] Browser calls the API through the web app's `/api` proxy (first-party cookie); pages redirect to `/login` without a session
+- [x] Account menu (theme, log out); `./scripts/dev.sh reset-password`
 - [ ] Save, rename and delete named searches (stored filter query)
 
 ### 3. Onboarding questionnaire
@@ -50,10 +94,14 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [ ] Preferences become the feed's default filters; editable later in Profile
 
 ### 4. Resume and profile
-- [ ] Resume upload (PDF, DOCX) to local file storage
-- [ ] Parse the resume into `profile_items` with `qwen3:8b` (JSON schema output); review and edit before saving
-- [ ] Profile page tabs: Personal, Education, Experience, Skills, Application answers
-- [ ] Encrypt sensitive answers (demographics, visa status) with aes-gcm
+- [x] Profile tables, one per section (`experiences`, `educations`, `projects`, `skills`, ...); each section saves as a whole, in order
+- [x] Resume upload (PDF, DOCX) to local file storage (`./data/files`), checked by content
+- [x] Rule-based resume parser (no AI) into a draft; review screen with per-section "Save this" and unplaced text
+- [x] Profile page: start card (upload or manual), tabs Personal, Experience, Education, Projects, Skills, Application answers; checklist; download uploaded resumes
+- [x] Equal-employment answers encrypted with AES-256-GCM (`PROFILE_ENCRYPTION_KEY`, added to `.env` automatically)
+- [ ] Try the parser on your real resume and add a fixture (fictional, same layout) for anything it misreads
+- [ ] Optional "Improve with AI" pass over the draft with `qwen3:8b` once Ollama is set up
+- [ ] Back up `PROFILE_ENCRYPTION_KEY`: without it, saved equal-employment answers can't be read
 
 ### 5. Matching
 - [ ] Embed jobs and profile with `qwen3-embedding:4b` into pgvector
@@ -63,7 +111,7 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [ ] More filters from the extracted data: Education, Skills, Clearance, Sponsorship
 
 ### 6. Tailored documents
-- [ ] Tailor a resume per job from `profile_items` (rephrase only, never invent)
+- [ ] Tailor a resume per job from the profile tables (rephrase only, never invent)
 - [ ] Render ATS-safe PDF (Typst) and DOCX
 - [ ] Cover letter from the same facts plus the company description
 - [ ] Documents page: base resume, tailored versions, editor
@@ -82,11 +130,17 @@ Design: [ARCHITECTURE.md](ARCHITECTURE.md).
 - [ ] Log the application in the tracker on submit
 
 ### Later
-- [ ] Adapters for Workday, Eightfold, iCIMS, SuccessFactors, Oracle and SmartRecruiters
+- [ ] Adapters for Eightfold, iCIMS, SuccessFactors and Oracle
 - [ ] Company data: industry, size, funding stage, founding year
 - [ ] Sponsorship likelihood from public H-1B filing data
 
 ### Housekeeping
-- [ ] Tests: Rust unit tests for filters and adapters; browser tests for the feed
+- [x] Rust tests for normalization, board URLs and adapter parsing (`cargo test`)
+- [ ] Database tests for the ingest rules (closing, reposts); browser tests for the feed
 - [ ] Review the 14 high-severity `npm audit` warnings from the Next.js starter
 - [ ] Try Ctrl+C in `./scripts/dev.sh dev` to confirm it stops everything
+- [x] Phone width (390px): the top bar and the Settings → Job sources table no longer scroll the page sideways
+- [x] The app works when opened at `127.0.0.1:3000` (CORS allowed only `localhost`); local URLs default to `127.0.0.1`
+- [x] Himalayas: a 429 partway through ends the check early instead of failing it, and the next check waits 3 hours (it allows about 100 pages, then refuses for hours)
+- [x] `./scripts/dev.sh ollama` and Ollama status in `/health`
+- [ ] Start Ollama and pull the models (`./scripts/dev.sh ollama`) before the profile work

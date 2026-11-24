@@ -1,0 +1,22 @@
+DANA K. WHITFIELD
+dana.whitfield@example.com   |   +1 (615) 555-0110   |   Nashville, TN
+
+P R O F E S S I O N A L   E X P E R I E N C E
+
+QA ENGINEER
+Litware Health, Nashville, TN                                          01/2020 – 12/2023
+▪ Wrote 600 automated UI tests in Playwright for the patient portal, which raised
+release confidence and cut manual regression time in half.
+▪ Triaged defects with developers in Jira.
+
+QUALITY ASSURANCE TESTER
+Proseware Inc.                                                         05/2018 – 12/2019
+▪ Ran manual and exploratory testing on the iOS and Android apps.
+
+E D U C A T I O N
+
+Middle Tennessee State University                                      2014 – 2018
+B.A. Mathematics
+
+C E R T I F I C A T I O N S
+ISTQB Certified Tester Foundation Level

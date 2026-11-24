@@ -52,7 +52,20 @@ export const SOURCE: Option[] = [
   { value: "greenhouse", label: "Greenhouse" },
   { value: "lever", label: "Lever" },
   { value: "ashby", label: "Ashby" },
+  { value: "workday", label: "Workday" },
+  { value: "smartrecruiters", label: "SmartRecruiters" },
+  { value: "workable", label: "Workable" },
+  { value: "recruitee", label: "Recruitee" },
+  { value: "bamboohr", label: "BambooHR" },
+  // Job boards: only jobs no tracked employer board has.
+  { value: "himalayas", label: "Himalayas" },
+  { value: "remotive", label: "Remotive" },
+  { value: "remoteok", label: "Remote OK" },
+  { value: "usajobs", label: "USAJOBS" },
 ];
+
+/** Sources that are job boards rather than an employer's own hiring system. */
+export const JOB_BOARDS: ReadonlySet<string> = new Set(["himalayas", "remotive", "remoteok", "usajobs"]);
 
 export const POSTED_WITHIN: Option[] = [
   { value: "24h", label: "Past 24 hours" },

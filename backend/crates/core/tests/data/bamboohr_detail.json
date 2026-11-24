@@ -1,0 +1,34 @@
+{
+  "meta": {},
+  "result": {
+    "jobOpening": {
+      "jobOpeningShareUrl": "https://rei.bamboohr.com/careers/42",
+      "jobOpeningName": "Project Engineer  - Building Enclosure",
+      "jobOpeningStatus": "Open",
+      "jobCategoryId": "18454",
+      "departmentId": "18585",
+      "departmentLabel": "Raleigh",
+      "employmentStatusLabel": "Full-Time",
+      "employmentType": null,
+      "location": {
+        "city": "Raleigh",
+        "state": "North Carolina",
+        "postalCode": "27615",
+        "addressCountry": "United States"
+      },
+      "atsLocation": {
+        "country": null,
+        "countryId": null,
+        "state": null,
+        "city": null
+      },
+      "description": "<p><span style=\"font-weight: bold\">Summary:  </span>Apply engineering principals and concepts learned from previous experience and formal education. Plan and perform project management and engineering duties for design, construction administration, assessments and investigations. Provide work direction to technicians and less experienced colleagues. Work includes engineering calculations and decision-making and is performed on multiple projects simultaneously. Review and seal project specifications for accuracy compliance with State Statutes. Recognize when there are better ways of doing thing</p>",
+      "compensation": "$70,000 - $85,000 per year",
+      "datePosted": "2023-10-06",
+      "minimumExperience": "Experienced",
+      "locationType": "0",
+      "seekPromoted": false,
+      "aiProcessingDisclosureEnabled": false
+    }
+  }
+}

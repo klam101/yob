@@ -21,7 +21,7 @@ Out of scope for v1: fully automatic applying, multiple users, mobile apps, host
                         ├──> API ──┐            ┌──> Ollama (local AI, native Windows app)
  Chrome extension ──────┘          │  Backend   │
         │                 Worker ──┘  (Rust)  ──┼──> Company job feeds (Greenhouse, Lever, Ashby, Workday...)
-        v                                       │
+        v                                       ├──> Job board APIs (Himalayas, Remote OK, USAJOBS...)
  Application pages                              ├──> Postgres + pgvector (all saved data)
  (company career sites)                         ├──> File storage (resumes, cover letters)
                                                 └──> Redis (queue, cache, rate limits, sessions)
@@ -56,10 +56,13 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 | --- | --- | --- |
 | `users` | Login, settings | |
 | `search_preferences` | Questionnaire answers: target titles, seniority, locations, remote, salary floor, industries, deal-breakers, plus saved named searches | `user_id` |
-| `profile_items` | Experience, education, projects, skills, each its own row with dates and bullets | `user_id` |
-| `answers` | Reusable form answers: work authorization, sponsorship, start date, demographics (encrypted), links | `user_id` |
-| `companies` | Name, careers site, platform (ATS), board id, polling interval, last checked | |
-| `jobs` | Title, location, salary, description, posted date, first seen, closed at, repost count, apply URL, source, content hash, embedding | `company_id` |
+| `profiles`, `profile_links` | Name, contact details, address, headline, summary; LinkedIn, GitHub and portfolio links | `user_id` |
+| `experiences`, `educations`, `projects`, `skills` | The profile's lists, one row per entry with a `position` for order, month dates (an experience with no end is current) and bullets as an ordered `text[]` | `user_id` |
+| `application_answers` | Work authorization and sponsorship in plain columns; equal-employment answers as one AES-256-GCM blob (key `PROFILE_ENCRYPTION_KEY`) | `user_id` |
+| `resumes` | Uploaded resumes: file key in file storage, name, type, extracted text | `user_id` |
+| `companies` | Name, careers site, platform (ATS, or `external` for employers known only from a job board), board id, polling interval, last checked | |
+| `jobs` | Title, location, salary, description, posted date, first seen, closed at, repost count, apply URL, source, content hash, embedding; `feed` when only a job board lists it | `company_id` |
+| `feeds`, `job_sources` | Job boards with public APIs and their schedule; every board listing, pointing at the job it was matched to | `job_id` |
 | `job_matches` | Fit score and reasons for one user and one job | `user_id`, `job_id` |
 | `documents` | A generated resume or cover letter: content, file path, version | `user_id`, `job_id` |
 | `applications` | Status (saved, applied, interviewing, offer, rejected), dates, notes, documents sent | `user_id`, `job_id` |
@@ -67,36 +70,71 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 
 Every personal table carries `user_id` even though v1 has one user, so adding users later is a login change, not a schema rewrite.
 
+**Login.** One account. Sign-up works only while `users` is empty, so the first visit creates the account and after that there is only login (checked in the API, under a table lock). Passwords are argon2id hashes. A session is a random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie (`yob_session`); Redis keeps only its SHA-256 hash with a 30-day expiry that each request refreshes, so a Redis dump can't be replayed. Failed logins are limited to 5 per email per 15 minutes. The browser calls the API through the web app's `/api` path (`frontend/src/proxy.ts` forwards it), so the cookie is first-party; the same proxy redirects pages to `/login` without a session. Personal API routes take the `CurrentUser` extractor and answer 401 without a session. `./scripts/dev.sh reset-password` sets a new password and ends every session.
+
+**Profile.** Lists are stored the relational way: five jobs are five rows in `experiences`, not five columns. Each tab of the Profile page saves its whole section (`PUT /profile/{section}`), replacing that section's rows in one transaction in the order given, so add, remove and reorder are one request. The profile is filled by hand or from a resume:
+
+- `POST /profile/resume` takes a PDF or DOCX (checked by its bytes, 5 MB at most), keeps the file in file storage, extracts the text (`pdf-extract`; DOCX from `word/document.xml`, with Word's list paragraphs as bullets) and parses it **with rules, no AI** (`core::profile::parse`): contact details by pattern, sections by known headings, entries split where a new dated header block starts, dates in a dozen formats, title vs. company by job-title words, and wrapped lines joined back. PDF text loses layout (two columns run together, drawn bullets vanish), so a few rules undo that.
+- The parse is only a draft. The review screen shows every section editable, lets you leave sections out, and lists text it couldn't place. Nothing is saved until you save it. A local-model pass can be added later as an optional improvement without changing the tables or the screen.
+
 ## Job ingestion
 
-Jobs come straight from the hiring systems companies use for their career pages, not from job boards. hiringcafe works the same way at a much larger scale (about 2.8 million listings from 46 platforms): nothing pushes new jobs to it; it re-checks career pages often.
+Jobs come mainly from the hiring systems companies use for their career pages. hiringcafe works the same way at a much larger scale (about 2.8 million listings from 46 platforms): nothing pushes new jobs to it; it re-checks career pages often. Job boards with free public APIs fill gaps, matched against those first (see "Job boards" below).
 
 **Adapters per platform, not per company.** One adapter covers every company on that platform.
 
 | Order | Platform | How we read it |
 | --- | --- | --- |
-| 1 | Greenhouse | Official public job board API, one feed per company |
-| 1 | Lever | Official public postings API |
-| 1 | Ashby | Official public job board API |
-| 2 | Workday | The JSON the company's careers page loads (unofficial) |
-| 2 | Eightfold | The JSON the careers page loads (Microsoft, Starbucks, Qualcomm, PayPal are listed as customers) |
-| 3 | iCIMS, SuccessFactors, Oracle, SmartRecruiters | Confirmed one at a time |
+| 1 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{token}/jobs` (light list); `?content=true` adds descriptions (HTML-escaped) for all jobs in one request. No workplace or employment type, so those are inferred. |
+| 1 | Lever | `api.lever.co/v0/postings/{company}?mode=json`, everything in one request. Rate-limits quickly. |
+| 1 | Ashby | `api.ashbyhq.com/posting-api/job-board/{name}?includeCompensation=true`, everything in one request, with structured pay |
+| 2 | Workday | The JSON the careers page loads. Token `tenant/wdN/site`. List: POST `/wday/cxs/{tenant}/{site}/jobs`, 20 per page; detail: GET per job. Some tenants stop listing at 2,000 jobs. |
+| 2 | SmartRecruiters | Official Posting API, `api.smartrecruiters.com/v1/companies/{id}/postings`, 100 per page; detail per job. Unknown ids return an empty list. |
+| 2 | Workable | `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, everything in one request. Only says "telecommuting" or not. |
+| 2 | Recruitee | `{company}.recruitee.com/api/offers/`, everything in one request, with remote and hybrid flags and sometimes pay |
+| 2 | BambooHR | The JSON the careers page loads: `{company}.bamboohr.com/careers/list`, then `/careers/{id}/detail` per job. A missing company redirects to bamboohr.com. |
+| 3 | Eightfold | The JSON the careers page loads (Microsoft, Starbucks, Qualcomm, PayPal are listed as customers) |
+| 3 | iCIMS, SuccessFactors, Oracle | Confirmed one at a time |
 | never | LinkedIn, Indeed, hiringcafe | Terms forbid scraping |
 
-Endpoints are from memory and get confirmed when each adapter is built.
+The endpoints for tiers 1 and 2 were confirmed in November 2026; the rest get confirmed when each adapter is built. Code: `backend/crates/core/src/jobs/` (`sources/` per platform, `normalize.rs`, `ingest.rs`, `store.rs`).
 
-**Finding companies.** Start from public lists of companies on Greenhouse, Lever and Ashby plus search results for their board URLs; grow whenever you save or paste a job from an unknown company. Preferences filter at search time, so the list can be broad.
+**Postgres is the job database; pages never call job boards.** The worker keeps a stored copy fresh in the background, and the feed and detail pages only query Postgres. They stay fast and keep working with the worker stopped or offline. Data survives restarts in the `pgdata` volume. Around 23,000 open jobs take about 230 MB.
+
+**Finding companies** (`discover.rs`; roadmap in [SOURCES.md](SOURCES.md)). A verified starter list ships in `seed_companies.json` (170 companies) and is inserted on worker start. Discovery adds more as `company_candidates`:
+
+- **Common Crawl:** the worker reads the URL index of the three newest crawls for board links on every supported platform in the background (Workday's huge pattern last). It pauses 3 seconds between pages, retries the often-overloaded index with long backoff, and saves progress per page in `discovery_progress`, so it resumes after restarts. Then it checks daily for a new crawl.
+- **Links:** board links inside new job postings.
+- **Manual:** one URL on Settings → Job sources (checked on the spot), or many at once there or with `./scripts/dev.sh discover <file>`.
+
+When no company is due, the worker verifies candidates through the same rate-limited fetcher. Verifying reads a single page on paged platforms (Workday, SmartRecruiters). A board with open jobs becomes a company, named from Greenhouse's board API, the Lever or Ashby page title, or the company name in SmartRecruiters, Workable or Recruitee data; Workday and BambooHR use the token. A missing or empty board is retried after 30 days. Preferences filter at search time, so the list can be broad.
+
+**Scope: US and remote.** `normalize::us_scope` keeps a job when any location is in the US or isn't recognized (plain "Remote" counts as in). It drops a job only when every location is clearly elsewhere. Out-of-scope jobs are stored as rows without descriptions (`in_scope = false`), so checks still recognize them; the feed, facets and counts skip them.
 
 **How a check runs.**
 
-1. Each company has an adaptive interval: 15 minutes for companies that post often or that you've saved jobs from, 6 to 24 hours for quiet ones. Redis rate limits each host.
-2. The worker fetches the company's job id list and compares it with the last one. Only new ids get a full description download.
-3. Each job is normalized to one shape and hashed.
-4. New jobs are embedded and queued for scoring.
+1. The schedule lives in Postgres (`companies.next_check_at`), so a restart resumes it instead of refetching everything. The worker runs 6 check slots and claims one due company whenever a slot frees up, with `FOR UPDATE SKIP LOCKED` and a 60-minute lease, so several workers never check the same company twice and one slow board doesn't hold up the rest. Spare slots verify discovered boards. (This replaces a Redis Streams queue for ingestion; Redis Streams stays planned for on-demand AI work.)
+2. The interval adapts to how often the company posts: 15 minutes if it posted in the last week, 6 hours if in the last month, otherwise daily, with ±10% jitter. Boards with more than 2,000 jobs wait at least 6 hours, since listing them alone takes hundreds of requests. Failures back off from 15 minutes up to a day. Redis holds a per-host request budget per second (Greenhouse 4, SmartRecruiters 4, Ashby 2, each Workday tenant and Recruitee company 2, Lever, Workable, BambooHR and others 1), shared by the worker and the API.
+3. Each adapter returns either full jobs (Lever, Ashby, Workable, Recruitee) or a partial list of stubs with id, title and locations (Greenhouse, Workday, SmartRecruiters, BambooHR). For a partial list, new out-of-scope stubs are stored as they are, and details are fetched only for new jobs in the US or with unknown locations: the whole board in one request for Greenhouse, one request per job elsewhere, at most 1,500 per check. The rest wait for the next check, 15 minutes later.
+4. Each job is normalized to one shape (workplace, job type, seniority from the title, salary from structured fields or the description), its HTML sanitized, and its content hashed. Jobs are written 500 per statement (`jsonb_to_recordset`); unchanged open jobs aren't rewritten. Every check is logged in `company_checks`.
+5. **Rule changes reach stored jobs.** Each row records the `normalize_version` it was derived with, and whether its salary came from text or a structured field. When the rules in `normalize.rs` change, bump `NORMALIZE_VERSION`. On start, the worker re-derives seniority, scope and text-parsed salaries from the stored title, locations and description, without refetching. Salaries are read from ranges like "$120,000 - $150,000", "$120K to $150K" and "187,500 USD – 364,000 USD" (common on Workday).
+6. Later: new jobs are embedded and queued for scoring.
+
+**Job boards** (`feeds/`; status on Settings → Job boards). Himalayas (about 120,000 remote jobs), Remotive and Remote OK need no key; USAJOBS runs when `USAJOBS_API_KEY` and `USAJOBS_EMAIL` are set in `.env`. Boards are scheduled like companies (`feeds` table, same slots and lease): Himalayas every 30 minutes, Remote OK every 2 hours, Remotive and USAJOBS every 6.
+
+- **Reading:** each check reads the newest pages until one has nothing new, then the next stretch of a full pass that resumes from a saved cursor. A 429 partway through ends that check early without counting as a failure, because progress is saved every page; the next check then waits 3 hours. Himalayas allows roughly 100 pages before refusing for hours, so its full pass takes days, while the newest pages, read first, keep new jobs arriving. Small boards fit in one page, so every check is a full pass.
+- **Quality:** a listing is kept only if it's open to US workers (the board's country list, or the location rules), has a company, a title and https links, and doesn't come from a known reposting service.
+- **Matching** (`company_key` and `title_key`, SQL functions with indexes): same company and title as an open job, with the same workplace or an overlapping location. A match on an employer's job (or another board's) adds only a `job_sources` row. If the employer is tracked but the job isn't there, the employer's board is trusted and nothing is added. Otherwise the listing becomes the board's own job (`jobs.feed`) under an inactive `external` company; when the employer's board is tracked later, the next check matches it and closes the board's copy. In November 2026, 49 of 79 Remote OK listings matched employer jobs we already had.
+- **Closing:** when a full pass ends, listings it didn't see are removed, and the board's own jobs with no listing left close.
+- **Credit:** the job page links each listing ("via Remote OK", "Also listed on Himalayas"), as Remotive and Remote OK require. Board links found in listings feed discovery.
+
+**Feed at scale.** Feed queries use partial indexes over open, in-scope jobs and a `pg_trgm` index for substring title search. Filter facets (top 60 departments, top 200 companies) are cached in Redis for 5 minutes; other companies are searched through `GET /jobs/companies`.
 
 **Stale and ghost jobs.**
 
-- A job missing from its company's feed is marked closed and hidden right away.
+- A job missing from its company's feed on two checks in a row is marked closed and hidden (one bad response can't close jobs). The row is kept, with `last_seen_at`, so saved jobs can show that they expired.
+- Descriptions of jobs closed more than 90 days ago are cleared daily; title, dates and hash stay for repost detection.
+- Salaries in currencies other than USD are shown but excluded from the USD salary filter and sort.
 - Every job records `first_seen_at`, not just the posted date the company claims.
 - A job matching one that closed earlier is flagged as a repost, with a count.
 - Jobs open more than 60 days, or reposted more than twice, get a "possibly stale" badge, and a filter hides them.
@@ -108,7 +146,7 @@ What you want comes from your own answers; your resume only drives recommendatio
 1. **Questionnaire first.** Input fields on first launch: titles, seniority (intern, entry, mid, senior, staff+), locations, remote or on-site, salary floor, work authorization and sponsorship, company size or industry, deal-breakers. Editable any time.
 2. **The feed uses those answers as default filters.**
 3. **Advanced filters stay visible** (title, location, remote, salary, seniority, company, platform, posted date, stale), and any filter set can be saved as a named search.
-4. **Resume upload, separately, powers recommendations.** A local model turns the resume into `profile_items`. Within the jobs your answers allow, they drive the fit score and a "Recommended for you" sort, and supply the facts for tailoring and autofill. The resume never changes your answers.
+4. **Resume upload, separately, powers recommendations.** The resume is read into a draft profile you review before saving (see Profile below). Within the jobs your answers allow, they drive the fit score and a "Recommended for you" sort, and supply the facts for tailoring and autofill. The resume never changes your answers.
 
 ## Matching and tailored documents
 
@@ -120,7 +158,7 @@ Matching runs in two passes so the AI only reads jobs worth reading.
 Tailoring, when you click "Tailor":
 
 1. Pull the job's required and preferred skills and keywords.
-2. Pick and reorder the most relevant `profile_items`, rewording bullets to the job's language only where truthful. Never invent experience.
+2. Pick and reorder the most relevant profile entries, rewording bullets to the job's language only where truthful. Never invent experience.
 3. Render a plain single-column, ATS-safe resume (Typst for PDF, plus DOCX).
 4. Write a cover letter from the same facts plus the company description.
 5. Show a keyword gap report: which keywords from the job are covered, and which are missing so you can decide whether to add them.
@@ -152,7 +190,7 @@ All AI runs free through Ollama, installed as the native Windows app so it uses 
 - Ollama loads and unloads models as needed, so both don't need to fit at once. With 16 GB of system RAM, avoid heavy apps during big batches.
 - Changing the embedding model means re-embedding all jobs; vectors from different models don't mix.
 - Use Ollama's JSON-schema `format` option for anything parsed by code.
-- Confirm exact model tags against the Ollama library when setting up.
+- Confirm exact model tags against the Ollama library when setting up. `./scripts/dev.sh ollama` checks the app is running and pulls both models; the model names live in `core::ollama`, and `/health` reports `ollama` and `missing_models` (Ollama being down doesn't mark the API degraded, since the job feed doesn't need it).
 
 ## Tech stack
 
@@ -176,7 +214,7 @@ yob/
 | Web server | `axum`, `tower-http` | Routing, CORS, logging, compression |
 | Async runtime | `tokio` | |
 | Database | `sqlx`, `pgvector` | Compile-time checked queries, migrations |
-| Queue, cache, rate limits, sessions | `redis`, `deadpool-redis`, `tower-sessions-redis-store` | Redis Streams for the queue |
+| Queue, cache, rate limits, sessions | `redis`, `deadpool-redis` | Redis Streams for the queue; sessions are a few Redis keys in `core::auth` rather than `tower-sessions`, whose Redis store brings a second Redis client |
 | Schedule | `tokio-cron-scheduler` | Queues feed checks on each company's interval |
 | JSON | `serde`, `serde_json` | |
 | HTTP client | `reqwest` | Job feeds |
@@ -185,7 +223,7 @@ yob/
 | Reading resumes | `pdf-extract`, `docx-rs` | |
 | Writing resumes | `typst`, `docx-rs` | ATS-safe PDFs |
 | File storage | `object_store` | Local folder now, S3 later |
-| Login | `argon2`, `tower-sessions`, `jsonwebtoken` | Ready for multiple users later |
+| Login | `argon2`, `axum-extra` cookies; `jsonwebtoken` later for extension tokens | Ready for multiple users later |
 | Encryption | `aes-gcm` | Sensitive answers |
 | Shared types | `utoipa` | OpenAPI spec, TS types generated from it |
 | Config, errors, logs | `dotenvy`, `thiserror`, `anyhow`, `tracing` | |
@@ -194,7 +232,7 @@ Crate names are from memory; confirm and pin versions when adding them.
 
 ## Running it locally
 
-Deployment is how the app is packaged and started; hosting is where it runs. For now both are your PC: `docker compose up`, then open `http://localhost:3000`.
+Deployment is how the app is packaged and started; hosting is where it runs. For now both are your PC: `docker compose up`, then open `http://127.0.0.1:3000`.
 
 | Service | Image or build | Port |
 | --- | --- | --- |

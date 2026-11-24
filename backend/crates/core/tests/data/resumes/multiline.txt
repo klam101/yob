@@ -1,0 +1,26 @@
+Samuel Okafor
+Data Analyst
+samuel.okafor@example.net
+(404) 555-0123
+Atlanta, GA
+
+Work History
+
+Data Analyst at Woodgrove Bank
+January 2021 - Present
+Atlanta, GA
+Built weekly risk dashboards in Tableau for the credit card team. Reduced manual reporting time by 12 hours a week by automating extracts with Python and SQL.
+
+Junior Analyst
+Adventure Works
+06/2019 - 12/2020
+Cleaned and joined sales data from four regional systems into one warehouse.
+
+Education
+
+Georgia State University
+Master of Science in Analytics
+2017 - 2019
+
+Skills
+SQL, Python, Tableau, Excel, Power BI, Statistics

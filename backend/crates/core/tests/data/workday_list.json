@@ -1,0 +1,32 @@
+{
+  "total": 3,
+  "jobPostings": [
+    {
+      "title": "Principal Test Design Staff Engineer - Networking",
+      "externalPath": "/job/US-CA-Remote/Principal-Test-Design-Staff-Engineer---Networking_JR2027519",
+      "locationsText": "US, CA, Remote",
+      "postedOn": "Posted 3 Days Ago",
+      "bulletFields": [
+        "JR2027519"
+      ]
+    },
+    {
+      "title": "Senior Supplier Quality Engineer - PCB",
+      "externalPath": "/job/China-Shenzhen/Senior-Supplier-Quality-Engineer---PCB_JR2028495",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted Today",
+      "bulletFields": [
+        "JR2028495"
+      ]
+    },
+    {
+      "title": "Senior Director, Integrated Circuit Product Engineering",
+      "externalPath": "/job/Israel-Yokneam/Senior-Director--Integrated-Circuit-Product-Engineering_JR2030089",
+      "locationsText": "Israel, Yokneam",
+      "postedOn": "Posted Today",
+      "bulletFields": [
+        "JR2030089"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+JORDAN A. RIVERA
+1420 Maple Avenue, Springfield, IL 62704
+(217) 555-0142 | jordan.rivera@example.com | linkedin.com/in/jordan-rivera-example | github.com/jrivera-example
+
+SUMMARY
+Backend engineer with five years building payment and logistics systems.
+
+EXPERIENCE
+Northwind Logistics                                                      Chicago, IL
+Senior Software Engineer                                         Mar 2022 – Present
+• Led the migration of the shipment tracking service from a monolith to three services,
+cutting p95 latency from 900 ms to 180 ms.
+• Built the carrier rate engine used for 40,000 quotes a day.
+Contoso Payments                                                        Remote
+Software Engineer                                                Jun 2019 – Feb 2022
+• Wrote the refunds API and its reconciliation job.
+• Mentored two interns.
+
+EDUCATION
+University of Illinois Urbana-Champaign                          Urbana, IL
+Bachelor of Science in Computer Science                          Aug 2015 – May 2019
+GPA: 3.7/4.0
+
+SKILLS
+Languages: Go, Python, SQL, TypeScript
+Tools: PostgreSQL, Kafka, Docker, Kubernetes, AWS

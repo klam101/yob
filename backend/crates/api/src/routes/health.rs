@@ -16,9 +16,14 @@ pub struct Health {
     status: String,
     database: bool,
     redis: bool,
+    /// Whether the local Ollama app answers. Not needed for the job feed, so
+    /// it doesn't affect `status`.
+    ollama: bool,
+    /// Models yob needs that Ollama hasn't pulled (`./scripts/dev.sh ollama`).
+    missing_models: Vec<String>,
 }
 
-/// Checks that the API can reach Postgres and Redis.
+/// Checks that the API can reach Postgres, Redis and Ollama.
 #[utoipa::path(
     get,
     path = "/health",
@@ -31,6 +36,7 @@ pub struct Health {
 async fn health(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
     let database = db_ping(&state).await;
     let redis = redis_ping(&state).await;
+    let ollama = yob_core::ollama::status(&state.ollama_url).await;
     let ok = database && redis;
 
     let code = if ok {
@@ -45,6 +51,8 @@ async fn health(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
             status,
             database,
             redis,
+            ollama: ollama.reachable,
+            missing_models: ollama.missing_models,
         }),
     )
 }

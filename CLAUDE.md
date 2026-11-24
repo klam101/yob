@@ -11,7 +11,7 @@ Full design: `docs/ARCHITECTURE.md`. Read it before large changes.
 - **Local only.** Everything runs with `docker compose up` on Windows (Docker Desktop + WSL 2) and binds to localhost. No cloud hosting yet.
 - **The user does git.** Don't create branches, commits, pushes or PRs unless asked.
 - **Postgres is the source of truth.** Redis only holds data that can be rebuilt (queue, cache, rate limits, sessions).
-- **Never invent resume content.** Tailoring may only rephrase facts from `profile_items`.
+- **Never invent resume content.** Tailoring may only rephrase facts from the profile tables (`experiences`, `educations`, `projects`, `skills`, ...).
 - **Don't scrape LinkedIn or Indeed.**
 
 ## Stack
@@ -51,13 +51,15 @@ User hardware: Windows, RTX 4060 Ti 8 GB, 16 GB RAM, i7-8700. Keep model choices
 - Keep `docs/TODO.md` current: tick items as they're finished and add new ones as they come up.
 - Use `./scripts/dev.sh` (Git Bash) or `./scripts/dev.ps1` (PowerShell) for routine tasks: `up` (full stack in Docker), `dev` (db and redis in Docker; API, worker and web run locally), `typegen`, `check` (fmt, clippy, lint, tsc; run it after changes), `psql`. The README lists every command. When a new routine command comes up, add it to `scripts/dev.sh` and the README table. `dev.ps1` only forwards to `dev.sh`; never put logic in it.
 - On Windows, local URLs use `127.0.0.1`, not `localhost`: `localhost` tries IPv6 first, and Docker only binds IPv4, so each new connection stalls about 2 seconds. The Next dev server is bound to `127.0.0.1` (`next dev -H 127.0.0.1`) to stay local-only.
-- Migrations live in `backend/crates/db/migrations` and run on startup of both the API and the worker.
+- Migrations live in `backend/crates/db/migrations` and run on startup of both the API and the worker. Never edit an applied migration; add a new one. `crates/db/build.rs` makes cargo rebuild when a migration is added.
+- Job data: the worker writes jobs (`core::jobs::ingest`); the API only reads them (`core::jobs::store`). Queries use bound parameters; sqlx 0.9 requires `AssertSqlSafe` for runtime-built SQL, so only wrap strings made of our own constants. When you change a rule in `normalize.rs`, bump `NORMALIZE_VERSION`; the worker then re-derives stored jobs on start. The feed shows only US and remote jobs (`in_scope`).
 - New API routes: a `routes(): OpenApiRouter<AppState>` function per feature under `crates/api/src/routes/`, merged in `routes/mod.rs`. After any API change, run `npm run typegen` in `frontend/` (the API must be running) to regenerate `frontend/src/api/schema.ts`. Never hand-edit that file; call the API through `frontend/src/api/client.ts`.
 - Frontend conventions:
   - **UI components** are shadcn/ui (Radix base) in `frontend/src/components/ui/`, restyled HeroUI-like: large radii, soft shadows, `flat` and `bordered` tints, press scale. Add new ones with `npx shadcn@4.23.0 add <name>`, then match that style. Colors are tokens in `globals.css` (indigo `primary`, plus `success`, `warning`, `destructive`) with light and dark values.
   - **Feed filters live in the URL query** (`src/lib/filters.ts`), with comma-separated lists matching the API.
   - **Runtime data needs `<Suspense>`:** with Cache Components on, anything reading `searchParams`, `params`, `usePathname` or live API data must sit inside `<Suspense>`, or `next build` fails.
-  - **Server vs browser API calls:** server components call the API at `API_INTERNAL_URL` (`http://api:8080` in Docker); the browser uses `NEXT_PUBLIC_API_URL`.
+  - **Server vs browser API calls:** server components call the API at `API_INTERNAL_URL` (`http://api:8080` in Docker), using `serverApi()` from `src/api/server.ts` for anything personal so the session cookie is forwarded; the browser calls `/api` on the web app's own origin, which `src/proxy.ts` forwards to the API (keeps the session cookie first-party).
+  - **Login:** every page except `/login` needs a session (`src/proxy.ts` redirects); personal API routes take the `CurrentUser` extractor (`crates/api/src/routes/auth.rs`).
 - Build each feature in this order: API types and a stub endpoint, then the page against the stub, then the real backend (migration, core logic, worker), then an end-to-end check.
 
 ## Build order

@@ -5,14 +5,15 @@ import type { components, paths } from "./schema";
  * Typed client for the yob API. Paths, params and response bodies come from
  * `schema.ts`, generated from the API's OpenAPI spec with `npm run typegen`.
  *
- * Server components and the browser reach the API at different addresses:
- * inside Docker the server uses the `api` service name, while the browser
- * always goes through the port published on localhost.
+ * The browser calls `/api` on this same origin; `src/proxy.ts` forwards it to
+ * the API, so the session cookie stays first-party. Server components call
+ * the API directly (the `api` service inside Docker); personal endpoints need
+ * the visitor's cookie, so use `serverApi()` for those.
  */
 const baseUrl =
   typeof window === "undefined"
     ? (process.env.API_INTERNAL_URL ?? "http://127.0.0.1:8080")
-    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080");
+    : "/api";
 
 export const api = createClient<paths>({ baseUrl });
 
@@ -26,6 +27,26 @@ export type MatchLabel = Schemas["MatchLabel"];
 export type Workplace = Schemas["Workplace"];
 export type EmploymentType = Schemas["EmploymentType"];
 export type Seniority = Schemas["Seniority"];
+export type Platform = Schemas["Platform"];
 export type Source = Schemas["Source"];
+export type Feed = Schemas["Feed"];
+export type FeedStatus = Schemas["FeedStatus"];
+export type Listing = Schemas["Listing"];
+export type CompanySource = Schemas["CompanySource"];
+export type AddCompany = Schemas["AddCompany"];
+export type CompaniesPage = Schemas["CompaniesPage"];
+export type DiscoveryStats = Schemas["DiscoveryStats"];
 export type Salary = Schemas["Salary"];
 export type JobsQuery = NonNullable<paths["/jobs"]["get"]["parameters"]["query"]>;
+export type Profile = Schemas["Profile"];
+export type Personal = Schemas["Personal"];
+export type ProfileLink = Schemas["Link"];
+export type LinkKind = Schemas["LinkKind"];
+export type Education = Schemas["Education"];
+export type Experience = Schemas["Experience"];
+export type Project = Schemas["Project"];
+export type Skill = Schemas["Skill"];
+export type Answers = Schemas["Answers"];
+export type Eeo = Schemas["Eeo"];
+export type ResumeDraft = Schemas["ResumeDraft"];
+export type ResumeInfo = Schemas["ResumeInfo"];

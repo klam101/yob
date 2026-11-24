@@ -1,0 +1,154 @@
+{
+ "totalCount": 120665,
+ "nextCursor": "MjAyNi0xMS0yM1QyMTozMDo0NC4yNTkzNjFafDI1Nzg1NTU",
+ "jobs": [
+  {
+   "title": "Contractor, Project Management",
+   "companyName": "Seer Interactive",
+   "companySlug": "seer-interactive",
+   "companyLogo": "https://cdn-images.himalayas.app/0zahpx4yrjv2kt67jfcmp1vlp3ja",
+   "employmentType": "Part Time",
+   "minSalary": 50,
+   "maxSalary": 60,
+   "salaryPeriod": "hourly",
+   "seniority": [
+    "Mid-level"
+   ],
+   "currency": "USD",
+   "locationRestrictions": [
+    "United States"
+   ],
+   "timezoneRestrictions": [
+    -10,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5,
+    14
+   ],
+   "categories": [
+    "Digital-Project-Manager",
+    "Project-Manager",
+    "Marketing-Project-Managers",
+    "Project-Coordinator",
+    "Program-Manager"
+   ],
+   "parentCategories": [
+    "Product",
+    "Operations"
+   ],
+   "description": "<div>\n<a href=\"https://himalayas.app/companies/seer-interactive\">Seer Interactive</a> is a digital marketing consultancy that harnesses compassion, data, and technology to make a mark on our communities - our coworkers, our clients, our industry, and our neighbors. We believe in relentlessly pursuing (and sharing) the truth – bringing together millions of data points from quantitative and qualitative sources to base our decisions on. Our purpose is to unlock potential for our communities mention",
+   "pubDate": 1795470682,
+   "expiryDate": 1800654681,
+   "applicationLink": "https://himalayas.app/companies/seer-interactive/jobs/contractor-project-management?utm_source=api",
+   "guid": "https://himalayas.app/companies/seer-interactive/jobs/contractor-project-management"
+  },
+  {
+   "title": "UK SMB Field Sales Team Manager",
+   "companyName": "Elavon",
+   "companySlug": "elavon",
+   "companyLogo": "https://cdn-images.himalayas.app/8n03hmd4ymj0gq1n252wld7lcxrm",
+   "employmentType": "Full Time",
+   "minSalary": null,
+   "maxSalary": null,
+   "salaryPeriod": "annual",
+   "seniority": [
+    "Mid-level"
+   ],
+   "currency": null,
+   "locationRestrictions": [
+    "United Kingdom"
+   ],
+   "timezoneRestrictions": [
+    0
+   ],
+   "categories": [
+    "Sales-Manager",
+    "Field-Sales-Manager",
+    "Sales-Team-Manager",
+    "Business-Development-Manager"
+   ],
+   "parentCategories": [
+    "Sales"
+   ],
+   "description": "<p>At U.S. Bank, we’re on a journey to do our best. Helping the customers and businesses we serve to make better and smarter financial decisions, enabling the communities we support to grow and succeed in the right ways, all more confidently and more often—that’s what we call the courage to thrive.   We believe it takes all of us to bring our shared ambition to life, and each person is unique in their potential. A career with U.S. Bank gives you a wide, ever-growing range of opportunities to dis",
+   "pubDate": 1795470751,
+   "expiryDate": 1800654750,
+   "applicationLink": "https://himalayas.app/companies/elavon/jobs/uk-smb-field-sales-team-manager?utm_source=api",
+   "guid": "https://himalayas.app/companies/elavon/jobs/uk-smb-field-sales-team-manager"
+  },
+  {
+   "title": "Autodesk Fusion CAM Expert",
+   "companyName": "micro1",
+   "companySlug": "micro1",
+   "companyLogo": "https://cdn-images.himalayas.app/91oa56akgt3qjqc1nh3uoruub40c",
+   "employmentType": "Contractor",
+   "minSalary": 60,
+   "maxSalary": 120,
+   "salaryPeriod": "hourly",
+   "seniority": [
+    "Senior"
+   ],
+   "currency": "USD",
+   "locationRestrictions": [],
+   "timezoneRestrictions": [
+    -11,
+    -10,
+    -9.5,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5,
+    -4,
+    -3.5,
+    -3,
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3,
+    3.5,
+    4,
+    4.5,
+    5,
+    5.5,
+    5.75,
+    6,
+    6.5,
+    7,
+    8,
+    8.75,
+    9,
+    9.5,
+    10,
+    10.5,
+    11,
+    12,
+    12.75,
+    13,
+    14
+   ],
+   "categories": [
+    "Fusion-360-Specialist",
+    "CNC-Machining-Expert",
+    "CAD-CAM",
+    "CAD-CAM-Integration-Engineer",
+    "CNC-Specialist",
+    "Manufacturing-Engineer",
+    "Design-Engineer",
+    "Mechanical-Design-Engineer"
+   ],
+   "parentCategories": [
+    "Hardware Engineer"
+   ],
+   "description": "<p><strong>Role Title: </strong>Autodesk Fusion CAM Expert</p><p><strong>Role Type:</strong> Contractor</p><p><strong>Location:</strong> Fully Remote-Open Worldwide</p><p><a href=\"https://himalayas.app/companies/micro1\">micro1</a> is engaging Autodesk Fusion Experts to contribute their advanced technical expertise to a customer’s AI training project focused on manufacturing and digital fabrication.</p><p>In this role, you'll apply your expertise to help train next-generation AI systems. Your wor",
+   "pubDate": 1795468861,
+   "expiryDate": 1800652861,
+   "applicationLink": "https://himalayas.app/companies/micro1/jobs/autodesk-fusion-cam-expert-5257184543?utm_source=api",
+   "guid": "https://himalayas.app/companies/micro1/jobs/autodesk-fusion-cam-expert-5257184543"
+  }
+ ]
+}

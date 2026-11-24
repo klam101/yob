@@ -24,7 +24,7 @@ export function Nav() {
  */
 export function NavLinks({ pathname }: { pathname: string }) {
   return (
-    <nav aria-label="Main" className="flex gap-1 md:flex-col md:gap-1.5">
+    <nav aria-label="Main" className="flex gap-0.5 sm:gap-1 md:flex-col md:gap-1.5">
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
@@ -33,7 +33,7 @@ export function NavLinks({ pathname }: { pathname: string }) {
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[0.6875rem] font-medium transition-colors md:w-16 md:py-2",
+              "group flex flex-col items-center gap-1 rounded-xl px-0.5 py-1.5 text-[0.6875rem] sm:px-2 font-medium transition-colors md:w-16 md:py-2",
               active ? "text-primary" : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -45,7 +45,7 @@ export function NavLinks({ pathname }: { pathname: string }) {
             >
               <Icon className="size-[1.15rem]" strokeWidth={active ? 2.25 : 2} />
             </span>
-            <span className="hidden sm:block">{label}</span>
+            <span className="sr-only sm:not-sr-only">{label}</span>
           </Link>
         );
       })}

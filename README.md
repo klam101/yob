@@ -2,7 +2,7 @@
 
 A personal, run-locally job search app: one feed of fresh jobs pulled straight from company hiring systems, ranked against your profile, with tailored resumes and cover letters and a Chrome extension that autofills applications.
 
-Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Progress: [docs/TODO.md](docs/TODO.md).
+Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Progress: [docs/TODO.md](docs/TODO.md). Job sources roadmap: [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Requirements
 
@@ -29,11 +29,14 @@ First time:
 ./scripts/dev.sh up      # builds and starts everything in Docker
 ```
 
-Then open http://localhost:3000.
+Then open http://127.0.0.1:3000 (`localhost` works too, but on Windows each new connection to it can stall about 2 seconds).
+
+Optional: to add US federal jobs from USAJOBS, get a free key at https://developer.usajobs.gov/apirequest/ and set `USAJOBS_API_KEY` and `USAJOBS_EMAIL` in `.env` (see `.env.example`), then run `up` again. Everything else needs no keys.
 
 | Command | What it does |
 | --- | --- |
 | `setup` | Checks Docker, Rust and Node; creates `.env` if missing; installs frontend packages |
+| `ollama` | Checks the Ollama app is running and pulls the models yob uses (`qwen3-embedding:4b`, `qwen3:8b`). Needed from the profile features onward |
 | `up` | Builds and starts the full stack in Docker, waits until healthy, prints the URLs |
 | `down` | Stops everything. Database data is kept |
 | `status` | Shows containers and the API health check |
@@ -45,9 +48,11 @@ Then open http://localhost:3000.
 | `fmt` | Formats the Rust code |
 | `psql` | Opens a Postgres shell |
 | `redis` | Opens a Redis shell |
+| `discover [file]` | Shows company discovery progress. With a file of job-board links (one per line), queues them to be checked and added. Needs the API running |
+| `reset-password` | Sets a new password for the login account from a prompt, and logs out every session. For when you forget it |
 | `reset-db` | Deletes all database data. Asks you to type `yes` first |
 
-URLs: web app http://localhost:3000, API health http://localhost:8080/health, OpenAPI spec http://localhost:8080/openapi.json.
+URLs: web app http://127.0.0.1:3000, API health http://127.0.0.1:8080/health, OpenAPI spec http://127.0.0.1:8080/openapi.json.
 
 `dev` and `up` use the same ports, so `dev` stops the Docker api, worker and frontend containers first. Run `up` to switch back to the full Docker stack.
 

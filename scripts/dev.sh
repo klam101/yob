@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 CONCURRENTLY="concurrently@10.0.7"
-API_URL="http://localhost:8080"
-WEB_URL="http://localhost:3000"
+API_URL="http://127.0.0.1:8080"
+WEB_URL="http://127.0.0.1:3000"
 
 usage() {
   cat <<'EOF'
@@ -18,6 +18,7 @@ Usage: ./scripts/dev.sh <command> [args]     (Git Bash)
 
 First time
   setup            Check tools, create .env (random DB password), install frontend packages
+  ollama           Check the Ollama app is running and pull the models yob uses
 
 Full stack in Docker
   up               Build and start everything, wait until healthy, print URLs
@@ -40,6 +41,9 @@ Code
 Data
   psql             Open a Postgres shell
   redis            Open a Redis shell
+  discover [file]  Show company discovery progress; with a file of job-board
+                   links (one per line), queue them to be checked and added
+  reset-password   Set a new password for the login account (logs out every session)
   reset-db         Delete ALL database and volume data (asks first)
 EOF
 }
@@ -59,6 +63,24 @@ need() {
 
 need_env() {
   [ -f .env ] || fail ".env is missing. Run ./scripts/dev.sh setup first."
+  ensure_profile_key
+}
+
+# Adds a random PROFILE_ENCRYPTION_KEY to .env when it has none (setups from
+# before the profile feature). Never replaces an existing key: answers saved
+# with it couldn't be read with a new one.
+ensure_profile_key() {
+  grep -qE '^PROFILE_ENCRYPTION_KEY=[0-9a-fA-F]{64}[[:space:]]*$' .env && return
+  local key
+  key=$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')
+  if grep -q '^PROFILE_ENCRYPTION_KEY=' .env; then
+    grep -qE '^PROFILE_ENCRYPTION_KEY=[[:space:]]*$' .env \
+      || fail "PROFILE_ENCRYPTION_KEY in .env isn't 64 hex characters. Fix it by hand (don't replace a key you've already used)."
+    sed -i "s/^PROFILE_ENCRYPTION_KEY=.*/PROFILE_ENCRYPTION_KEY=$key/" .env
+  else
+    printf '\n# Encrypts equal-employment answers. Keep it.\nPROFILE_ENCRYPTION_KEY=%s\n' "$key" >> .env
+  fi
+  say "Added a random PROFILE_ENCRYPTION_KEY to .env"
 }
 
 # Prints the API's /health body, or fails quietly if it isn't reachable.
@@ -92,11 +114,40 @@ cmd_setup() {
     pw=$(node -e 'console.log(require("crypto").randomBytes(18).toString("base64url"))')
     sed "s/change-me/$pw/g" .env.example > .env
     say "Created .env with a random database password"
+    ensure_profile_key
   fi
 
   say "Installing frontend packages"
   (cd frontend && npm ci)
+  if ! ollama_up; then
+    echo "Note: Ollama isn't running. The job feed works without it; the profile,"
+    echo "matching and document features need it. Install it (winget install Ollama.Ollama),"
+    echo "start it, then run ./scripts/dev.sh ollama"
+  fi
   ok "Setup done. Next: ./scripts/dev.sh up  (or ./scripts/dev.sh dev)"
+}
+
+# Keep in step with backend/crates/core/src/ollama.rs.
+OLLAMA_URL_LOCAL="http://127.0.0.1:11434"
+OLLAMA_MODELS="qwen3-embedding:4b qwen3:8b"
+
+ollama_up() { curl -fsS -m 3 "$OLLAMA_URL_LOCAL/api/tags" >/dev/null 2>&1; }
+
+cmd_ollama() {
+  need curl "curl comes with Git Bash."
+  ollama_up || fail "Ollama isn't answering at $OLLAMA_URL_LOCAL. Install it (winget install Ollama.Ollama) and start the Ollama app."
+  need ollama "The Ollama app is running but its 'ollama' command isn't on PATH. Open a new terminal."
+  local tags model
+  tags=$(curl -fsS -m 5 "$OLLAMA_URL_LOCAL/api/tags")
+  for model in $OLLAMA_MODELS; do
+    if grep -q "\"name\":\"$model\"" <<<"$tags"; then
+      ok "$model is ready"
+    else
+      say "Pulling $model (several GB, one time)"
+      ollama pull "$model"
+    fi
+  done
+  ok "Ollama is ready"
 }
 
 cmd_up() {
@@ -196,13 +247,62 @@ cmd_check() {
   say "frontend lint"
   (cd frontend && npm run lint)
   say "frontend TypeScript check"
-  (cd frontend && npx tsc --noEmit)
+  # Route types are generated; refresh them so moved or deleted pages don't
+  # leave stale ones behind.
+  (cd frontend && npx next typegen >/dev/null && npx tsc --noEmit)
   ok "All checks passed"
+}
+
+cmd_discover() {
+  api_health >/dev/null || fail "The API isn't running at $API_URL. Start it with ./scripts/dev.sh up or ./scripts/dev.sh dev, then try again."
+  if [ -n "${1:-}" ]; then
+    [ -f "$1" ] || fail "No such file: $1"
+    say "Queueing job-board links from $1"
+  fi
+  # Node is already required for the frontend; it reads the file and calls the API.
+  API_URL="$API_URL" node - "${1:-}" <<'JS'
+const fs = require("node:fs");
+const [file] = process.argv.slice(2);
+const api = process.env.API_URL;
+(async () => {
+  if (file) {
+    const urls = fs.readFileSync(file, "utf8").split(/[\s,]+/).filter(Boolean);
+    const res = await fetch(`${api}/discovery/candidates`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message ?? `HTTP ${res.status}`);
+    console.log(`Queued ${body.queued} new boards (${body.recognized} recognized, ${body.unrecognized.length} not job boards).`);
+    for (const u of body.unrecognized.slice(0, 10)) console.log(`  not a board: ${u}`);
+  }
+  const s = await (await fetch(`${api}/discovery`)).json();
+  const index = s.index_pages_total == null ? `${s.index_pages_read} pages read` : `${s.index_pages_read} of ${s.index_pages_total} pages read`;
+  console.log(`Discovery: ${s.pending} waiting to check, ${s.added} added (${s.added_last_week} this week), ${s.rejected} not added.`);
+  console.log(`Common Crawl: ${index}.`);
+})().catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+JS
 }
 
 cmd_fmt() {
   (cd backend && cargo fmt)
   ok "Rust code formatted"
+}
+
+cmd_reset_password() {
+  local email pw pw2
+  read -r -p "Account email: " email
+  read -r -s -p "New password (at least 10 characters): " pw; echo
+  read -r -s -p "Repeat it: " pw2; echo
+  [ "$pw" = "$pw2" ] || fail "The passwords don't match."
+  # Sent on stdin, so the password never appears in the process list.
+  if [ -n "$(docker compose ps -q api 2>/dev/null)" ]; then
+    printf '%s\n%s\n' "$email" "$pw" | docker compose exec -T api app reset-password
+  else
+    need cargo "Install Rust: winget install Rustlang.Rustup"
+    printf '%s\n%s\n' "$email" "$pw" | (cd backend && cargo run -q --bin api -- reset-password)
+  fi
 }
 
 cmd_psql() {
@@ -230,6 +330,7 @@ shift || true
 case "$command" in
   help|-h|--help) usage ;;
   setup)    cmd_setup ;;
+  ollama)   cmd_ollama ;;
   up)       cmd_up ;;
   down)     cmd_down ;;
   status)   cmd_status ;;
@@ -239,7 +340,9 @@ case "$command" in
   typegen)  cmd_typegen ;;
   check)    cmd_check ;;
   fmt)      cmd_fmt ;;
+  discover) cmd_discover "$@" ;;
   psql)     cmd_psql ;;
+  reset-password) cmd_reset_password ;;
   redis)    cmd_redis ;;
   reset-db) cmd_reset_db ;;
   *)
