@@ -13,11 +13,12 @@ publish = false
 yob-core = { path = "crates/core" }
 yob-db = { path = "crates/db" }
 
+aes-gcm = "0.11.1"
 ammonia = "4.2.5"
 argon2 = "0.6.0"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 anyhow = "1.0.104"
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["multipart"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 deadpool-redis = { version = "0.23.1", features = ["rt_tokio_1"] }
 dotenvy = "0.15.7"
@@ -25,6 +26,9 @@ futures = "0.3.34"
 getrandom = "0.4.3"
 hex = "0.4.3"
 html-escape = "0.3.1"
+object_store = "0.14.2"
+pdf-extract = "0.12.1"
+quick-xml = "0.42.0"
 regex = "1.13.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "gzip", "query", "charset", "http2"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -39,4 +43,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
 utoipa-axum = "0.3.0"
+# DOCX resumes are plain deflate-compressed zips.
+zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 uuid = { version = "1.29.3", features = ["v4", "serde"] }

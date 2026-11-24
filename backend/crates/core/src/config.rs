@@ -10,6 +10,30 @@ pub struct Config {
     pub ollama_url: String,
     /// Optional keys for job boards that need one.
     pub feed_keys: FeedKeys,
+    /// Encrypts the equal-employment answers. Required by the API.
+    pub profile_key: Option<ProfileKey>,
+    /// Local folder for uploaded and generated files.
+    pub files_dir: String,
+}
+
+/// 32 bytes for AES-256-GCM, written in `.env` as 64 hex characters.
+#[derive(Clone)]
+pub struct ProfileKey(pub [u8; 32]);
+
+impl std::fmt::Debug for ProfileKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProfileKey(..)")
+    }
+}
+
+impl ProfileKey {
+    pub fn from_hex(s: &str) -> Result<Self> {
+        let bytes = hex::decode(s.trim()).context("PROFILE_ENCRYPTION_KEY must be hex")?;
+        let key: [u8; 32] = bytes.try_into().map_err(|_| {
+            anyhow::anyhow!("PROFILE_ENCRYPTION_KEY must be 64 hex characters (32 bytes)")
+        })?;
+        Ok(Self(key))
+    }
 }
 
 /// API keys for job boards. A board whose key isn't set is skipped.
@@ -51,6 +75,10 @@ impl Config {
             web_origin: optional("WEB_ORIGIN", "http://127.0.0.1:3000"),
             ollama_url: optional("OLLAMA_URL", "http://127.0.0.1:11434"),
             feed_keys: FeedKeys { usajobs },
+            profile_key: set("PROFILE_ENCRYPTION_KEY")
+                .map(|k| ProfileKey::from_hex(&k))
+                .transpose()?,
+            files_dir: optional("FILES_DIR", "./data/files"),
         })
     }
 }

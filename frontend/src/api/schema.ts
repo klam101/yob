@@ -258,6 +258,196 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything in the profile. */
+        get: operations["get_profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Saves work authorization and the (encrypted) equal-employment answers. */
+        put: operations["put_answers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/educations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces the education entries, in the order given. */
+        put: operations["put_educations"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/experiences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces the work experience, in the order given. */
+        put: operations["put_experiences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces the links, in the order given. */
+        put: operations["put_links"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Saves name, contact details, headline and summary. */
+        put: operations["put_personal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces the projects, in the order given. */
+        put: operations["put_projects"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uploads a resume (PDF or DOCX) and returns a draft profile read from it.
+         *     The file is kept; the profile isn't changed.
+         */
+        post: operations["upload_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Uploaded resumes, newest first. */
+        get: operations["list_resumes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resumes/{id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Downloads an uploaded resume. */
+        get: operations["resume_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces the skills, in the order given. Duplicates are dropped. */
+        put: operations["put_skills"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -274,6 +464,37 @@ export interface components {
              *     https://jobs.lever.co/palantir or https://jobs.ashbyhq.com/ramp.
              */
             url: string;
+        };
+        Answers: {
+            /**
+             * @description e.g. "Citizen", "Green card", "F-1 OPT".
+             * @default
+             */
+            authorization_basis: string;
+            /** @default null */
+            authorized_us: boolean | null;
+            /**
+             * @default {
+             *       "disability": "",
+             *       "gender": "",
+             *       "hispanic_latino": "",
+             *       "lgbtq": "",
+             *       "pronouns": "",
+             *       "race": "",
+             *       "sexual_orientation": "",
+             *       "veteran": ""
+             *     }
+             */
+            eeo: components["schemas"]["Eeo"];
+            /** @default null */
+            needs_sponsorship: boolean | null;
+            /** @default null */
+            us_citizen: boolean | null;
+            /**
+             * @description Countries you want to work in.
+             * @default []
+             */
+            work_countries: string[];
         };
         /** @description Error body returned by every endpoint on failure. */
         ApiError: {
@@ -376,8 +597,65 @@ export interface components {
              */
             rejected: number;
         };
+        /** @description Dates are months, written `YYYY-MM` (what `<input type="month">` uses). */
+        Education: {
+            /** @default  */
+            degree: string;
+            /** @default  */
+            details: string;
+            /** @default null */
+            end: string | null;
+            /** @default  */
+            field_of_study: string;
+            /** @default  */
+            gpa: string;
+            /** @default  */
+            location: string;
+            /** @default  */
+            school: string;
+            /** @default null */
+            start: string | null;
+        };
+        /** @description Equal-employment answers. Stored encrypted; empty means not provided. */
+        Eeo: {
+            /** @default  */
+            disability: string;
+            /** @default  */
+            gender: string;
+            /** @default  */
+            hispanic_latino: string;
+            /** @default  */
+            lgbtq: string;
+            /** @default  */
+            pronouns: string;
+            /** @default  */
+            race: string;
+            /** @default  */
+            sexual_orientation: string;
+            /** @default  */
+            veteran: string;
+        };
         /** @enum {string} */
         EmploymentType: "full_time" | "part_time" | "contract" | "internship";
+        Experience: {
+            /** @default [] */
+            bullets: string[];
+            /** @default  */
+            company: string;
+            /** @default  */
+            employment_type: string;
+            /**
+             * @description None with a start date means "Present".
+             * @default null
+             */
+            end: string | null;
+            /** @default  */
+            location: string;
+            /** @default null */
+            start: string | null;
+            /** @default  */
+            title: string;
+        };
         FacetCount: {
             /** Format: int32 */
             count: number;
@@ -540,6 +818,12 @@ export interface components {
             /** @description Keywords from the job the profile doesn't mention. */
             missing: string[];
         };
+        Link: {
+            kind: components["schemas"]["LinkKind"];
+            url: string;
+        };
+        /** @enum {string} */
+        LinkKind: "linkedin" | "github" | "portfolio" | "other";
         Listing: {
             source: components["schemas"]["Source"];
             /** @description The job's page on the board. */
@@ -570,11 +854,129 @@ export interface components {
             email: string;
             id: string;
         };
+        Personal: {
+            /** @default  */
+            city: string;
+            /** @default  */
+            country: string;
+            /** @default  */
+            email: string;
+            /** @default  */
+            first_name: string;
+            /**
+             * @description A one-line title, e.g. "QA engineer".
+             * @default
+             */
+            headline: string;
+            /** @default  */
+            last_name: string;
+            /** @default  */
+            phone: string;
+            /** @default  */
+            postal_code: string;
+            /**
+             * @description State or province.
+             * @default
+             */
+            region: string;
+            /** @default  */
+            street: string;
+            /** @default  */
+            summary: string;
+        };
         /**
          * @description The hiring platform a company's job board runs on.
          * @enum {string}
          */
         Platform: "greenhouse" | "lever" | "ashby" | "workday" | "smartrecruiters" | "workable" | "recruitee" | "bamboohr";
+        Profile: {
+            /**
+             * @default {
+             *       "authorization_basis": "",
+             *       "authorized_us": null,
+             *       "eeo": {
+             *         "disability": "",
+             *         "gender": "",
+             *         "hispanic_latino": "",
+             *         "lgbtq": "",
+             *         "pronouns": "",
+             *         "race": "",
+             *         "sexual_orientation": "",
+             *         "veteran": ""
+             *       },
+             *       "needs_sponsorship": null,
+             *       "us_citizen": null,
+             *       "work_countries": []
+             *     }
+             */
+            answers: components["schemas"]["Answers"];
+            /** @default [] */
+            educations: components["schemas"]["Education"][];
+            /** @default [] */
+            experiences: components["schemas"]["Experience"][];
+            /** @default [] */
+            links: components["schemas"]["Link"][];
+            /**
+             * @default {
+             *       "city": "",
+             *       "country": "",
+             *       "email": "",
+             *       "first_name": "",
+             *       "headline": "",
+             *       "last_name": "",
+             *       "phone": "",
+             *       "postal_code": "",
+             *       "region": "",
+             *       "street": "",
+             *       "summary": ""
+             *     }
+             */
+            personal: components["schemas"]["Personal"];
+            /** @default [] */
+            projects: components["schemas"]["Project"][];
+            /** @default [] */
+            skills: components["schemas"]["Skill"][];
+        };
+        Project: {
+            /** @default [] */
+            bullets: string[];
+            /** @default null */
+            end: string | null;
+            /** @default  */
+            name: string;
+            /** @default  */
+            role: string;
+            /** @default [] */
+            skills: string[];
+            /** @default null */
+            start: string | null;
+            /** @default  */
+            url: string;
+        };
+        ResumeDraft: {
+            filename: string;
+            /** @description What the parser read. Nothing is saved until the sections are PUT. */
+            profile: components["schemas"]["Profile"];
+            resume_id: string;
+            /** @description Lines it couldn't place, for the user to copy where they belong. */
+            unsorted: string[];
+        };
+        ResumeInfo: {
+            content_type: string;
+            filename: string;
+            id: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: date-time */
+            uploaded_at: string;
+        };
+        ResumeUpload: {
+            /**
+             * Format: binary
+             * @description A PDF or DOCX, at most 5 MB.
+             */
+            file: string;
+        };
         Salary: {
             currency: string;
             /** Format: int32 */
@@ -587,6 +989,15 @@ export interface components {
         SalaryPeriod: "year" | "hour";
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
+        Skill: {
+            /**
+             * @description e.g. "Languages", "Tools". Empty when the resume didn't group them.
+             * @default
+             */
+            category: string;
+            /** @default  */
+            name: string;
+        };
         /**
          * @description Where a job came from: an employer's hiring platform, or a job board
          *     when no employer copy is tracked. The feed's Source filter.
@@ -1073,6 +1484,335 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_answers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Answers"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Answers"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_educations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Education"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Education"][];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_experiences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Experience"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Experience"][];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Link"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Link"][];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_personal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Personal"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Personal"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"][];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    upload_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ResumeUpload"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeDraft"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_resumes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeInfo"][];
+                };
+            };
+        };
+    };
+    resume_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Skill"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"][];
+                };
+            };
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

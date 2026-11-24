@@ -94,10 +94,14 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Preferences become the feed's default filters; editable later in Profile
 
 ### 4. Resume and profile
-- [ ] Resume upload (PDF, DOCX) to local file storage
-- [ ] Parse the resume into `profile_items` with `qwen3:8b` (JSON schema output); review and edit before saving
-- [ ] Profile page tabs: Personal, Education, Experience, Skills, Application answers
-- [ ] Encrypt sensitive answers (demographics, visa status) with aes-gcm
+- [x] Profile tables, one per section (`experiences`, `educations`, `projects`, `skills`, ...); each section saves as a whole, in order
+- [x] Resume upload (PDF, DOCX) to local file storage (`./data/files`), checked by content
+- [x] Rule-based resume parser (no AI) into a draft; review screen with per-section "Save this" and unplaced text
+- [x] Profile page: start card (upload or manual), tabs Personal, Experience, Education, Projects, Skills, Application answers; checklist; download uploaded resumes
+- [x] Equal-employment answers encrypted with AES-256-GCM (`PROFILE_ENCRYPTION_KEY`, added to `.env` automatically)
+- [ ] Try the parser on your real resume and add a fixture (fictional, same layout) for anything it misreads
+- [ ] Optional "Improve with AI" pass over the draft with `qwen3:8b` once Ollama is set up
+- [ ] Back up `PROFILE_ENCRYPTION_KEY`: without it, saved equal-employment answers can't be read
 
 ### 5. Matching
 - [ ] Embed jobs and profile with `qwen3-embedding:4b` into pgvector
@@ -107,7 +111,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] More filters from the extracted data: Education, Skills, Clearance, Sponsorship
 
 ### 6. Tailored documents
-- [ ] Tailor a resume per job from `profile_items` (rephrase only, never invent)
+- [ ] Tailor a resume per job from the profile tables (rephrase only, never invent)
 - [ ] Render ATS-safe PDF (Typst) and DOCX
 - [ ] Cover letter from the same facts plus the company description
 - [ ] Documents page: base resume, tailored versions, editor

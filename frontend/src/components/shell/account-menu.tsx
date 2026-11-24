@@ -50,7 +50,9 @@ export function AccountMenu() {
 
   async function logOut() {
     await api.POST("/auth/logout").catch(() => {});
-    // A full page load, so no page or form state from the session survives.
+    // A full page load on purpose, so no page or form state from the session
+    // survives (a client-side navigation keeps earlier pages alive).
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/login");
   }
 

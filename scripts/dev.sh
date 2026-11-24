@@ -63,6 +63,24 @@ need() {
 
 need_env() {
   [ -f .env ] || fail ".env is missing. Run ./scripts/dev.sh setup first."
+  ensure_profile_key
+}
+
+# Adds a random PROFILE_ENCRYPTION_KEY to .env when it has none (setups from
+# before the profile feature). Never replaces an existing key: answers saved
+# with it couldn't be read with a new one.
+ensure_profile_key() {
+  grep -qE '^PROFILE_ENCRYPTION_KEY=[0-9a-fA-F]{64}[[:space:]]*$' .env && return
+  local key
+  key=$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')
+  if grep -q '^PROFILE_ENCRYPTION_KEY=' .env; then
+    grep -qE '^PROFILE_ENCRYPTION_KEY=[[:space:]]*$' .env \
+      || fail "PROFILE_ENCRYPTION_KEY in .env isn't 64 hex characters. Fix it by hand (don't replace a key you've already used)."
+    sed -i "s/^PROFILE_ENCRYPTION_KEY=.*/PROFILE_ENCRYPTION_KEY=$key/" .env
+  else
+    printf '\n# Encrypts equal-employment answers. Keep it.\nPROFILE_ENCRYPTION_KEY=%s\n' "$key" >> .env
+  fi
+  say "Added a random PROFILE_ENCRYPTION_KEY to .env"
 }
 
 # Prints the API's /health body, or fails quietly if it isn't reachable.
@@ -96,6 +114,7 @@ cmd_setup() {
     pw=$(node -e 'console.log(require("crypto").randomBytes(18).toString("base64url"))')
     sed "s/change-me/$pw/g" .env.example > .env
     say "Created .env with a random database password"
+    ensure_profile_key
   fi
 
   say "Installing frontend packages"

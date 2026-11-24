@@ -1,4 +1,4 @@
-use yob_core::jobs::Fetcher;
+use yob_core::{config::ProfileKey, jobs::Fetcher, profile::resume::Files};
 use yob_db::PgPool;
 
 /// Shared handles passed to every request handler.
@@ -10,4 +10,8 @@ pub struct AppState {
     /// per-host rate limit with the worker through Redis.
     pub fetcher: Fetcher,
     pub ollama_url: String,
+    /// Encrypts the equal-employment answers.
+    pub profile_key: ProfileKey,
+    /// Uploaded resumes and generated documents.
+    pub files: Files,
 }

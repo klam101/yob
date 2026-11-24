@@ -11,7 +11,7 @@ Full design: `docs/ARCHITECTURE.md`. Read it before large changes.
 - **Local only.** Everything runs with `docker compose up` on Windows (Docker Desktop + WSL 2) and binds to localhost. No cloud hosting yet.
 - **The user does git.** Don't create branches, commits, pushes or PRs unless asked.
 - **Postgres is the source of truth.** Redis only holds data that can be rebuilt (queue, cache, rate limits, sessions).
-- **Never invent resume content.** Tailoring may only rephrase facts from `profile_items`.
+- **Never invent resume content.** Tailoring may only rephrase facts from the profile tables (`experiences`, `educations`, `projects`, `skills`, ...).
 - **Don't scrape LinkedIn or Indeed.**
 
 ## Stack

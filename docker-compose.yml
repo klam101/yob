@@ -42,11 +42,17 @@ services:
       WEB_ORIGIN: http://127.0.0.1:3000
       API_ADDR: 0.0.0.0:8080
       RUST_LOG: ${RUST_LOG:-info}
+      # Encrypts equal-employment answers; ./scripts/dev.sh setup creates it.
+      PROFILE_ENCRYPTION_KEY: ${PROFILE_ENCRYPTION_KEY:-}
+      FILES_DIR: /data/files
       # Optional job board keys (see .env.example); blank means skipped.
       USAJOBS_API_KEY: ${USAJOBS_API_KEY:-}
       USAJOBS_EMAIL: ${USAJOBS_EMAIL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Uploaded resumes and generated documents, in the repo's ./data folder.
+      - ./data/files:/data/files
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

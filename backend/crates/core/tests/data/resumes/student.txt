@@ -1,0 +1,28 @@
+Mei Lin Chen
+mchen.example@university.edu | (864) 555-0177 | Clemson, SC 29631 | github.com/meichen-example
+
+EDUCATION
+Clemson University, Clemson, SC                                 Expected May 2026
+B.S. Computer Science, Minor in Mathematics
+GPA: 3.52/4.00
+Relevant Coursework: Data Structures, Algorithms, Operating Systems, Databases
+
+PROJECTS
+Campus Ride Share | React, Node.js, PostgreSQL                         Jan 2025 – Apr 2025
+• Built a ride matching app used by 300 students during spring break.
+• Wrote the matching algorithm that pairs riders by route overlap.
+Course Scheduler                                                       Fall 2024
+• Generates conflict-free schedules from the course catalog.
+• Technologies: Python, Flask, SQLite
+
+EXPERIENCE
+Teaching Assistant, School of Computing                                Aug 2024 – Present
+Clemson University                                                     Clemson, SC
+• Hold weekly office hours for 120 students in Intro to Programming.
+
+SKILLS
+Languages: Java, Python, JavaScript, C
+Frameworks & Tools: React, Node.js, Git, Linux
+
+AWARDS
+Dean's List (Fall 2023, Spring 2024)

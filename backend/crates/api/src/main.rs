@@ -25,12 +25,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let fetcher = yob_core::jobs::Fetcher::new(redis.clone())?;
+    let profile_key = config.profile_key.clone().context(
+        "PROFILE_ENCRYPTION_KEY is not set. Run ./scripts/dev.sh up (or setup) to add one to .env",
+    )?;
+    let files = yob_core::profile::resume::Files::local(&config.files_dir)
+        .with_context(|| format!("opening file storage at {}", config.files_dir))?;
     let app = routes::router(
         state::AppState {
             db,
             redis,
             fetcher,
             ollama_url: config.ollama_url.clone(),
+            profile_key,
+            files,
         },
         &config,
     )?;

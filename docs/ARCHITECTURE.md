@@ -56,8 +56,10 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 | --- | --- | --- |
 | `users` | Login, settings | |
 | `search_preferences` | Questionnaire answers: target titles, seniority, locations, remote, salary floor, industries, deal-breakers, plus saved named searches | `user_id` |
-| `profile_items` | Experience, education, projects, skills, each its own row with dates and bullets | `user_id` |
-| `answers` | Reusable form answers: work authorization, sponsorship, start date, demographics (encrypted), links | `user_id` |
+| `profiles`, `profile_links` | Name, contact details, address, headline, summary; LinkedIn, GitHub and portfolio links | `user_id` |
+| `experiences`, `educations`, `projects`, `skills` | The profile's lists, one row per entry with a `position` for order, month dates (an experience with no end is current) and bullets as an ordered `text[]` | `user_id` |
+| `application_answers` | Work authorization and sponsorship in plain columns; equal-employment answers as one AES-256-GCM blob (key `PROFILE_ENCRYPTION_KEY`) | `user_id` |
+| `resumes` | Uploaded resumes: file key in file storage, name, type, extracted text | `user_id` |
 | `companies` | Name, careers site, platform (ATS, or `external` for employers known only from a job board), board id, polling interval, last checked | |
 | `jobs` | Title, location, salary, description, posted date, first seen, closed at, repost count, apply URL, source, content hash, embedding; `feed` when only a job board lists it | `company_id` |
 | `feeds`, `job_sources` | Job boards with public APIs and their schedule; every board listing, pointing at the job it was matched to | `job_id` |
@@ -69,6 +71,11 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 Every personal table carries `user_id` even though v1 has one user, so adding users later is a login change, not a schema rewrite.
 
 **Login.** One account. Sign-up works only while `users` is empty, so the first visit creates the account and after that there is only login (checked in the API, under a table lock). Passwords are argon2id hashes. A session is a random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie (`yob_session`); Redis keeps only its SHA-256 hash with a 30-day expiry that each request refreshes, so a Redis dump can't be replayed. Failed logins are limited to 5 per email per 15 minutes. The browser calls the API through the web app's `/api` path (`frontend/src/proxy.ts` forwards it), so the cookie is first-party; the same proxy redirects pages to `/login` without a session. Personal API routes take the `CurrentUser` extractor and answer 401 without a session. `./scripts/dev.sh reset-password` sets a new password and ends every session.
+
+**Profile.** Lists are stored the relational way: five jobs are five rows in `experiences`, not five columns. Each tab of the Profile page saves its whole section (`PUT /profile/{section}`), replacing that section's rows in one transaction in the order given, so add, remove and reorder are one request. The profile is filled by hand or from a resume:
+
+- `POST /profile/resume` takes a PDF or DOCX (checked by its bytes, 5 MB at most), keeps the file in file storage, extracts the text (`pdf-extract`; DOCX from `word/document.xml`, with Word's list paragraphs as bullets) and parses it **with rules, no AI** (`core::profile::parse`): contact details by pattern, sections by known headings, entries split where a new dated header block starts, dates in a dozen formats, title vs. company by job-title words, and wrapped lines joined back. PDF text loses layout (two columns run together, drawn bullets vanish), so a few rules undo that.
+- The parse is only a draft. The review screen shows every section editable, lets you leave sections out, and lists text it couldn't place. Nothing is saved until you save it. A local-model pass can be added later as an optional improvement without changing the tables or the screen.
 
 ## Job ingestion
 
@@ -139,7 +146,7 @@ What you want comes from your own answers; your resume only drives recommendatio
 1. **Questionnaire first.** Input fields on first launch: titles, seniority (intern, entry, mid, senior, staff+), locations, remote or on-site, salary floor, work authorization and sponsorship, company size or industry, deal-breakers. Editable any time.
 2. **The feed uses those answers as default filters.**
 3. **Advanced filters stay visible** (title, location, remote, salary, seniority, company, platform, posted date, stale), and any filter set can be saved as a named search.
-4. **Resume upload, separately, powers recommendations.** A local model turns the resume into `profile_items`. Within the jobs your answers allow, they drive the fit score and a "Recommended for you" sort, and supply the facts for tailoring and autofill. The resume never changes your answers.
+4. **Resume upload, separately, powers recommendations.** The resume is read into a draft profile you review before saving (see Profile below). Within the jobs your answers allow, they drive the fit score and a "Recommended for you" sort, and supply the facts for tailoring and autofill. The resume never changes your answers.
 
 ## Matching and tailored documents
 
@@ -151,7 +158,7 @@ Matching runs in two passes so the AI only reads jobs worth reading.
 Tailoring, when you click "Tailor":
 
 1. Pull the job's required and preferred skills and keywords.
-2. Pick and reorder the most relevant `profile_items`, rewording bullets to the job's language only where truthful. Never invent experience.
+2. Pick and reorder the most relevant profile entries, rewording bullets to the job's language only where truthful. Never invent experience.
 3. Render a plain single-column, ATS-safe resume (Typst for PDF, plus DOCX).
 4. Write a cover letter from the same facts plus the company description.
 5. Show a keyword gap report: which keywords from the job are covered, and which are missing so you can decide whether to add them.

@@ -77,6 +77,20 @@ impl From<yob_core::auth::AuthError> for ApiError {
     }
 }
 
+impl From<yob_core::profile::ProfileError> for ApiError {
+    fn from(err: yob_core::profile::ProfileError) -> Self {
+        use yob_core::profile::ProfileError as E;
+        match err {
+            E::Invalid(m) => Self::bad_request(m),
+            E::Database(e) => e.into(),
+            E::Decrypt => {
+                tracing::error!(error = %err, "profile");
+                Self::internal(err.to_string())
+            }
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.status, Json(self)).into_response()

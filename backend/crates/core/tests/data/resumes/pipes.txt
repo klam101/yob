@@ -1,0 +1,15 @@
+Priya Natarajan
+Austin, TX 78701 · priya.n@example.org · 512-555-0199 · https://priya-example.dev
+
+Professional Experience
+Software Engineer | Fabrikam Robotics | Austin, TX | Jun 2022 – Present
+- Designed the fleet telemetry pipeline (Rust, Kafka) handling 2M events per minute.
+- Added end-to-end tests that caught 30+ regressions before release.
+Software Engineering Intern | Tailspin Toys | Seattle, WA | Summer 2021
+- Built an internal dashboard for warehouse pick rates.
+
+Education
+The University of Texas at Austin | B.S. Electrical and Computer Engineering | 2018 – 2022
+
+Technical Skills
+Rust, C++, Python, Kafka, gRPC, Linux
