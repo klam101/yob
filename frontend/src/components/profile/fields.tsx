@@ -5,6 +5,7 @@ import { createContext, useContext, useId, useLayoutEffect, useRef, useState } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input, inputClass } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-picker";
 import { SuggestInput } from "@/components/ui/suggest";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,7 +13,7 @@ import { cn } from "cn";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "2024-05" -> "May 2024". */
+/** "2024-05-14" (or "2024-05") -> "May 2024". */
 export function formatMonth(m: string | null | undefined) {
   if (!m) return "";
   const [y, mo] = m.split("-");
@@ -207,8 +208,11 @@ export function TextAreaField({
   );
 }
 
-/** A month picker (`YYYY-MM`); empty means no date. */
-export function MonthField({
+/**
+ * A date field: shows "Nov 2026", stores the whole day (`YYYY-MM-DD`; the
+ * 1st when only a month is given), with a calendar below. Empty means no date.
+ */
+export function DateField({
   label,
   name,
   value,
@@ -225,15 +229,16 @@ export function MonthField({
   return (
     <Field label={label} error={error}>
       {(id, describedBy, invalid) => (
-        <Input
+        <DateInput
           id={id}
-          type="month"
-          value={value ?? ""}
+          aria-label={label}
+          placeholder="MM/DD/YYYY"
+          value={value}
+          onChange={onChange}
           disabled={disabled}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          className={cn(invalid && invalidClass)}
-          onChange={(e) => onChange(e.target.value || null)}
+          className={cn(inputClass, invalid && invalidClass)}
         />
       )}
     </Field>

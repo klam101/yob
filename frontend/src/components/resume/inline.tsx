@@ -6,6 +6,7 @@ import type { ResumeChange } from "@/api/client";
 import { GrowingTextarea, IconButton, invalidClass, useFieldError, useFieldPath } from "@/components/profile/fields";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateInput } from "@/components/ui/date-picker";
 import { SuggestInput } from "@/components/ui/suggest";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isAllCaps, tidyCaps } from "@/lib/caps";
@@ -222,7 +223,10 @@ export function InlineText({
   );
 }
 
-/** A month (`YYYY-MM`) edited in place; empty means no date. */
+/**
+ * A date edited in place: shows "Nov 2026", stores the whole day
+ * (`YYYY-MM-DD`), with a calendar below. Empty means no date.
+ */
 export function InlineMonth({
   name,
   label,
@@ -239,28 +243,22 @@ export function InlineMonth({
   const id = useId();
   const path = useFieldPath(name);
   const error = useFieldError(name);
-  // An empty month picker shows "--------- ----"; show the label instead
-  // until it's focused.
-  const [focused, setFocused] = useState(false);
-  const picker = !!value || focused;
   return (
     <div className="min-w-0" data-field={path}>
       <div className="flex items-center gap-1">
-        <input
+        <DateInput
           id={id}
-          type={picker ? "month" : "text"}
-          placeholder={label}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           aria-label={label}
-          value={value ?? ""}
+          placeholder={label}
+          value={value}
+          onChange={onChange}
           disabled={disabled}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${id}-error` : undefined}
-          onChange={(e) => onChange(e.target.value || null)}
+          wrapperClassName="w-40"
           className={cn(
             inlineClass,
-            "w-40 text-sm text-muted-foreground disabled:opacity-60",
+            "text-sm text-muted-foreground disabled:opacity-60",
             !value && emptyClass,
             error && invalidClass,
           )}

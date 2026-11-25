@@ -83,7 +83,8 @@ pub struct Link {
     pub url: String,
 }
 
-/// Dates are months, written `YYYY-MM` (what `<input type="month">` uses).
+/// Dates are whole days, written `YYYY-MM-DD` (a month alone, `YYYY-MM`, is
+/// accepted as the 1st). The app shows month and year; the day is for forms.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct Education {
@@ -254,18 +255,26 @@ fn count(section: &str, n: usize) -> Result<(), ProfileError> {
     Ok(())
 }
 
-/// `YYYY-MM` to the first day of that month.
-pub fn parse_month(s: &str) -> Option<NaiveDate> {
-    let (y, m) = s.trim().split_once('-')?;
-    let (y, m) = (y.parse::<i32>().ok()?, m.parse::<u32>().ok()?);
-    if !(1900..=2100).contains(&y) {
+/// `YYYY-MM-DD`, or `YYYY-MM` read as the 1st of the month (the day
+/// isn't always known; application forms that ask for one get the 1st).
+pub fn parse_date(s: &str) -> Option<NaiveDate> {
+    let mut parts = s.trim().split('-');
+    let y = parts.next()?.parse::<i32>().ok()?;
+    let m = parts.next()?.parse::<u32>().ok()?;
+    let d = match parts.next() {
+        Some(d) => d.parse::<u32>().ok()?,
+        None => 1,
+    };
+    if parts.next().is_some() || !(1900..=2100).contains(&y) {
         return None;
     }
-    NaiveDate::from_ymd_opt(y, m, 1)
+    NaiveDate::from_ymd_opt(y, m, d)
 }
 
-fn month(d: Option<NaiveDate>) -> Option<String> {
-    d.map(|d| d.format("%Y-%m").to_string())
+/// A date as the API writes it: `YYYY-MM-DD`. The app shows only the month
+/// and year; the day is there for forms that ask for it.
+pub fn date_str(d: Option<NaiveDate>) -> Option<String> {
+    d.map(|d| d.format("%Y-%m-%d").to_string())
 }
 
 /// Checks an entry's dates. `path` is the entry's field path
@@ -280,8 +289,8 @@ fn dates(
     let parse = |which: &str, s: &Option<String>| -> Result<Option<NaiveDate>, ProfileError> {
         match s.as_deref().map(str::trim) {
             None | Some("") => Ok(None),
-            Some(v) => parse_month(v).map(Some).ok_or_else(|| {
-                field_error(format!("{path}.{which}"), "Pick a month, like 2024-05.")
+            Some(v) => parse_date(v).map(Some).ok_or_else(|| {
+                field_error(format!("{path}.{which}"), "Pick a date, like 2024-05-14.")
             }),
         }
     };
@@ -468,8 +477,8 @@ pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Prof
         minor: r.3,
         gpa: r.4,
         location: r.5,
-        start: month(r.6),
-        end: month(r.7),
+        start: date_str(r.6),
+        end: date_str(r.7),
         details: r.8,
     })
     .collect();
@@ -496,8 +505,8 @@ pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Prof
         title: r.1,
         location: r.2,
         employment_type: r.3,
-        start: month(r.4),
-        end: month(r.5),
+        start: date_str(r.4),
+        end: date_str(r.5),
         bullets: r.6,
     })
     .collect();
@@ -525,8 +534,8 @@ pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Prof
         summary: r.1,
         role: r.2,
         url: r.3,
-        start: month(r.4),
-        end: month(r.5),
+        start: date_str(r.4),
+        end: date_str(r.5),
         bullets: r.6,
         skills: r.7,
     })
@@ -755,8 +764,8 @@ pub async fn save_educations(
                 minor: f("minor", "Minor", &e.minor)?,
                 gpa,
                 location: f("location", "Location", &e.location)?,
-                start: month(start),
-                end: month(end),
+                start: date_str(start),
+                end: date_str(end),
                 details: long("Details", &e.details)
                     .map_err(|err| field_error(format!("{path}.details"), err.to_string()))?,
             },
@@ -825,8 +834,8 @@ pub async fn save_experiences(
                 title,
                 location: f("location", "Location", &e.location)?,
                 employment_type: f("employment_type", "Job type", &e.employment_type)?,
-                start: month(start),
-                end: month(end),
+                start: date_str(start),
+                end: date_str(end),
             },
             start,
             end,
@@ -892,8 +901,8 @@ pub async fn save_projects(
                 role: f("role", "Role", &p.role)?,
                 url: normalize_url(&p.url)
                     .map_err(|err| field_error(format!("{path}.url"), err.to_string()))?,
-                start: month(start),
-                end: month(end),
+                start: date_str(start),
+                end: date_str(end),
                 name,
             },
             start,
@@ -1031,10 +1040,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn months() {
-        assert_eq!(parse_month("2024-05"), NaiveDate::from_ymd_opt(2024, 5, 1));
-        assert_eq!(parse_month("2024-13"), None);
-        assert_eq!(parse_month("May 2024"), None);
+    fn dates_keep_the_day() {
+        assert_eq!(parse_date("2024-05"), NaiveDate::from_ymd_opt(2024, 5, 1));
+        assert_eq!(
+            parse_date("2024-05-14"),
+            NaiveDate::from_ymd_opt(2024, 5, 14)
+        );
+        assert_eq!(parse_date("2024-13"), None);
+        assert_eq!(parse_date("2025-02-30"), None);
+        assert_eq!(parse_date("2024-05-14-1"), None);
+        assert_eq!(parse_date("May 2024"), None);
+        assert_eq!(
+            date_str(parse_date("2024-05-14")).as_deref(),
+            Some("2024-05-14")
+        );
+        assert_eq!(
+            date_str(parse_date("2024-05")).as_deref(),
+            Some("2024-05-01")
+        );
+        // The same month: a later day is after an earlier one.
+        assert!(
+            dates(
+                "x",
+                &Some("2024-05-20".into()),
+                &Some("2024-05-03".into()),
+                false
+            )
+            .is_err()
+        );
         assert!(dates("x", &Some("2024-05".into()), &Some("2023-01".into()), false).is_err());
         assert!(dates("x", &Some("2024-05".into()), &None, false).is_ok());
         assert!(
@@ -1052,7 +1085,7 @@ mod tests {
 
     #[test]
     fn newest_first_order() {
-        let d = parse_month;
+        let d = parse_date;
         let mut items = vec![
             ("none", None, None),
             ("old", d("2019-01"), d("2020-01")),

@@ -17,7 +17,9 @@ use super::{
 /// 2: an education entry's degree, major and minor became `degrees`.
 /// 3: each degree became one "X in Y" row (`degree`, `field`); a minor or a
 /// second major is its own row ("Minor" in "Business").
-pub const CONTENT_VERSION: i32 = 3;
+/// 4: start and end dates are whole days (`YYYY-MM-DD`; a month alone is the
+/// 1st), shown as month and year.
+pub const CONTENT_VERSION: i32 = 4;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
@@ -323,6 +325,27 @@ fn coursework(line: &str) -> Option<Vec<String>> {
 ///   concentrations. Each block becomes rows: the degree in its majors, then
 ///   "Minor" in each minor and "Concentration" in each concentration.
 pub fn upgrade(c: &mut ResumeContent) {
+    // Version 3 -> 4: "2024-05" -> "2024-05-01". Text that isn't a date is
+    // left for the user to fix (validation names the field).
+    let whole_day = |d: &mut Option<String>| {
+        if let Some(v) = d
+            && let Some(date) = super::parse_date(v)
+        {
+            *v = date.format("%Y-%m-%d").to_string();
+        }
+    };
+    for e in &mut c.educations {
+        whole_day(&mut e.start);
+        whole_day(&mut e.end);
+    }
+    for x in &mut c.experiences {
+        whole_day(&mut x.start);
+        whole_day(&mut x.end);
+    }
+    for p in &mut c.projects {
+        whole_day(&mut p.start);
+        whole_day(&mut p.end);
+    }
     for (i, e) in c.educations.iter_mut().enumerate() {
         // Version 1 -> 2: the entry's own fields become its first block.
         let degree = std::mem::take(&mut e.degree);
@@ -758,9 +781,9 @@ fn list(
 fn month(field: &str, v: &Option<String>) -> Result<Option<String>, ProfileError> {
     match v.as_deref().map(str::trim) {
         None | Some("") => Ok(None),
-        Some(m) => super::parse_month(m)
-            .map(|d| Some(d.format("%Y-%m").to_string()))
-            .ok_or_else(|| err(field, "Pick a month, like 2024-05.")),
+        Some(m) => super::parse_date(m)
+            .map(|d| super::date_str(Some(d)))
+            .ok_or_else(|| err(field, "Pick a date, like 2024-05-14.")),
     }
 }
 
@@ -1105,6 +1128,32 @@ mod tests {
         let before = c.clone();
         upgrade(&mut c);
         assert_eq!(c, before);
+    }
+
+    #[test]
+    fn version_3_months_become_days() {
+        let json = serde_json::json!({
+            "educations": [{"school": "Lakeside", "start": "2021-08", "end": "2025-05-14"}],
+            "experiences": [{"company": "Acme", "start": "2023-06", "end": null}],
+            "projects": [{"name": "Tool", "start": "2022-01"}]
+        });
+        let mut c: ResumeContent = serde_json::from_value(json).unwrap();
+        upgrade(&mut c);
+        assert_eq!(c.educations[0].start.as_deref(), Some("2021-08-01"));
+        assert_eq!(
+            c.educations[0].end.as_deref(),
+            Some("2025-05-14"),
+            "a day is kept"
+        );
+        assert_eq!(c.experiences[0].start.as_deref(), Some("2023-06-01"));
+        assert_eq!(c.experiences[0].end, None);
+        assert_eq!(c.projects[0].start.as_deref(), Some("2022-01-01"));
+        // Saved content keeps the exact day.
+        c.experiences[0].start = Some("2023-06-17".into());
+        let v = validate(&c).unwrap();
+        assert_eq!(v.experiences[0].start.as_deref(), Some("2023-06-17"));
+        let p = to_profile(&v);
+        assert_eq!(p.experiences[0].start.as_deref(), Some("2023-06-17"));
     }
 
     #[test]

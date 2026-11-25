@@ -783,7 +783,10 @@ export interface components {
              */
             rejected: number;
         };
-        /** @description Dates are months, written `YYYY-MM` (what `<input type="month">` uses). */
+        /**
+         * @description Dates are whole days, written `YYYY-MM-DD` (a month alone, `YYYY-MM`, is
+         *     accepted as the 1st). The app shows month and year; the day is for forms.
+         */
         Education: {
             /** @default  */
             degree: string;

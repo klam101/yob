@@ -17,7 +17,7 @@ import {
   CheckField,
   Field,
   ListEditor,
-  MonthField,
+  DateField,
   SelectField,
   TextAreaField,
   TextField,
@@ -277,13 +277,13 @@ export function EducationEditor({
               onChange={(location) => update({ location })}
               className="sm:col-span-2"
             />
-            <MonthField
+            <DateField
               label="Start"
               name="start"
               value={e.start}
               onChange={(start) => update({ start })}
             />
-            <MonthField
+            <DateField
               label="End (or expected)"
               name="end"
               value={e.end}
@@ -311,7 +311,7 @@ const EMPLOYMENT_TYPES = [
   "Freelance",
 ] as const;
 
-/** Month number for comparing `YYYY-MM` dates; an open end is "now". */
+/** Month number for comparing dates (`YYYY-MM-DD`, by month); an open end is "now". */
 function monthIndex(m: string | null, fallback: number) {
   if (!m) return fallback;
   const [y, mo] = m.split("-").map(Number);
@@ -397,13 +397,13 @@ function ExperienceFields({
           onChange={(employment_type) => update({ employment_type })}
           options={EMPLOYMENT_TYPES}
         />
-        <MonthField
+        <DateField
           label="Start"
           name="start"
           value={e.start}
           onChange={(start) => update({ start })}
         />
-        <MonthField
+        <DateField
           label="End"
           name="end"
           value={e.end}
@@ -480,13 +480,13 @@ export function ProjectEditor({
               placeholder="github.com/you/project"
               className="sm:col-span-2"
             />
-            <MonthField
+            <DateField
               label="Start"
               name="start"
               value={p.start}
               onChange={(start) => update({ start })}
             />
-            <MonthField
+            <DateField
               label="End"
               name="end"
               value={p.end}

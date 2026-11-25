@@ -116,6 +116,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] The first resume fills an empty profile automatically, once; later resumes ask before updating it
 - [x] One resume page: `/resume/edit/{id}` laid out like Jobright's; "Update profile" is a dialog with section checkboxes (the separate review screen is gone)
 - [x] Degrees on a resume as "X in Y" rows ("Bachelor of Science in Computer Science", "Minor in Business", "Major in Mathematics"), one row per "+"; both boxes suggest and take any text; older saved resumes upgraded in place
+- [x] Dates stored as whole days (`YYYY-MM-DD`; a month alone is the 1st) for forms that ask for the day, shown as "Nov 2026"; app-styled date picker (`DateInput`: type 11/25/2026 or 11/2026, or pick from a calendar with month and year views)
 - [x] App-styled suggestion menu (`SuggestInput`) below the box, a few options narrowed as you type; replaces every native `<datalist>`
 - [ ] Two-column PDF layouts (sidebar resumes): text extraction interleaves the columns
 - [ ] Export a resume (PDF/DOCX from its content), with Stage 6 rendering
