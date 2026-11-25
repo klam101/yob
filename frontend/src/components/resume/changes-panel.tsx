@@ -10,7 +10,7 @@ export const REASON: Record<ResumeChange["kind"], string> = {
   joined_word: "A word was split across two lines; joined back.",
   icon_link: "An icon stood for this account; read as its address.",
   link_label: "\"GitHub\" or a similar link label was part of the name; taken off.",
-  degree_split: "One line held the degree, major and minor; split into fields.",
+  degree_split: "One line held the degree, major and minor; split into rows.",
   class_of_may: "Only a year was given; read as May, when most degrees finish.",
   link_from_file: "The address was only in the file's link, not in its text.",
 };
@@ -47,6 +47,12 @@ export function fieldLabel(path: string) {
     return `Header · ${FIELD[index] ?? index}`;
   }
   const where = `${SECTION[section] ?? section} ${Number(index) + 1}`;
+  if (field === "degrees") {
+    // "educations.0.degrees.1.field" -> "Education 1 · row 2 field of study"
+    const part = parts[4];
+    const row = `row ${Number(sub) + 1}`;
+    return `${where} · ${part === "field" ? `${row} field of study` : row}`;
+  }
   const what = field === "bullets" ? `bullet ${Number(sub) + 1}` : (FIELD[field] ?? field);
   return `${where} · ${what}`;
 }

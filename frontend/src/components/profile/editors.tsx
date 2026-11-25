@@ -11,6 +11,7 @@ import type {
   Skill,
 } from "@/api/client";
 import { useState } from "react";
+import { DEGREES, FIELDS_OF_STUDY } from "@/lib/degrees";
 import {
   BulletList,
   CheckField,
@@ -242,6 +243,7 @@ export function EducationEditor({
             <TextField
               label="Degree"
               name="degree"
+              suggestions={DEGREES}
               value={e.degree}
               onChange={(degree) => update({ degree })}
               placeholder="Bachelor of Science"
@@ -249,6 +251,7 @@ export function EducationEditor({
             <TextField
               label="Major"
               name="field_of_study"
+              suggestions={FIELDS_OF_STUDY}
               value={e.field_of_study}
               onChange={(field_of_study) => update({ field_of_study })}
               placeholder="Computer Science"
@@ -256,6 +259,7 @@ export function EducationEditor({
             <TextField
               label="Minor"
               name="minor"
+              suggestions={FIELDS_OF_STUDY}
               value={e.minor}
               onChange={(minor) => update({ minor })}
             />

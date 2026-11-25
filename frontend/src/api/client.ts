@@ -57,6 +57,7 @@ export type ResumeDetail = Schemas["ResumeDetail"];
 export type ResumeContent = Schemas["ResumeContent"];
 export type ResumeChange = Schemas["Change"];
 export type ResumeEducation = Schemas["ResumeEducation"];
+export type ResumeDegree = Schemas["ResumeDegree"];
 export type ResumeExperience = Schemas["ResumeExperience"];
 export type SectionKind = Schemas["SectionKind"];
 export type FilledFrom = Schemas["FilledFrom"];

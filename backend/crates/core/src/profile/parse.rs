@@ -1093,7 +1093,7 @@ fn education(
         .iter()
         .map(|(f, v)| super::resume_content::FieldValue {
             field: (*f).to_owned(),
-            value: (*v).to_owned(),
+            value: (*v).into(),
         })
         .collect();
         changes.push(c);
@@ -1910,7 +1910,7 @@ fn place_links(
         let mut c = Change::new(field.clone(), ChangeKind::LinkFromFile, "", url);
         c.undo = vec![super::resume_content::FieldValue {
             field,
-            value: String::new(),
+            value: "".into(),
         }];
         c
     };

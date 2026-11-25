@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "cn";
+import { rowKind } from "@/lib/degrees";
 
 const SECTIONS: { id: ProfileSection; label: string }[] = [
   { id: "personal", label: "Personal details" },
@@ -36,7 +37,16 @@ function resumeCount(c: ResumeContent, s: ProfileSection) {
     case "personal":
       return c.header.name || c.header.email || c.header.phone || c.header.links.some((l) => l.url) ? 1 : 0;
     case "education":
-      return c.educations.filter(filled).length;
+      // The profile has one entry per degree row (at least one per school);
+      // "Minor in …" and the like join the degree above them.
+      return c.educations
+        // Every entry has a row; an empty one doesn't make it filled.
+        .filter((e) => filled({ ...e, degrees: e.degrees.filter((d) => filled(d)) }))
+        .reduce(
+          (n, e) =>
+            n + Math.max(1, e.degrees.filter((d) => (d.degree || d.field) && rowKind(d.degree) === "degree").length),
+          0,
+        );
     case "experience":
       return c.experiences.filter(filled).length;
     case "projects":

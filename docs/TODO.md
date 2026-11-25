@@ -115,6 +115,8 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Resume page per resume (now `/resume/edit/{id}`): its own content edited in place with autosave; what the parser changed with Keep/Undo; fix capitals; coursework chips; section order per resume
 - [x] The first resume fills an empty profile automatically, once; later resumes ask before updating it
 - [x] One resume page: `/resume/edit/{id}` laid out like Jobright's; "Update profile" is a dialog with section checkboxes (the separate review screen is gone)
+- [x] Degrees on a resume as "X in Y" rows ("Bachelor of Science in Computer Science", "Minor in Business", "Major in Mathematics"), one row per "+"; both boxes suggest and take any text; older saved resumes upgraded in place
+- [x] App-styled suggestion menu (`SuggestInput`) below the box, a few options narrowed as you type; replaces every native `<datalist>`
 - [ ] Two-column PDF layouts (sidebar resumes): text extraction interleaves the columns
 - [ ] Export a resume (PDF/DOCX from its content), with Stage 6 rendering
 - [ ] "Analyze" a resume against a job: keyword gap (Stages 5–6)

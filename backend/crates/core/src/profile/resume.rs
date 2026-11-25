@@ -452,7 +452,15 @@ pub async fn content(
         Some((Some(json), version)) if version == CONTENT_VERSION => {
             Ok(Some(serde_json::from_str(&json)?))
         }
-        Some(_) => {
+        // Saved by an older version: upgrade it, keeping the user's edits.
+        Some((Some(json), _)) => {
+            let mut c: ResumeContent = serde_json::from_str(&json)?;
+            resume_content::upgrade(&mut c);
+            store_content(pool, user_id, id, &c, false).await?;
+            Ok(Some(c))
+        }
+        // Never read into content (uploaded before contents were kept).
+        Some((None, _)) => {
             let Some(c) = read_again(pool, files, user_id, id).await? else {
                 return Ok(None);
             };

@@ -14,7 +14,10 @@ use super::{
     link_kind, normalize_url, parse::Parsed,
 };
 
-pub const CONTENT_VERSION: i32 = 1;
+/// 2: an education entry's degree, major and minor became `degrees`.
+/// 3: each degree became one "X in Y" row (`degree`, `field`); a minor or a
+/// second major is its own row ("Minor" in "Business").
+pub const CONTENT_VERSION: i32 = 3;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
@@ -76,9 +79,9 @@ pub const ALL_SECTIONS: [SectionKind; 4] = [
 #[serde(default)]
 pub struct ResumeEducation {
     pub school: String,
-    pub degree: String,
-    pub field_of_study: String,
-    pub minor: String,
+    /// "X in Y" rows: "Bachelor of Science" in "Computer Science", "Minor"
+    /// in "Business", "Major" in "Mathematics" for a double major.
+    pub degrees: Vec<ResumeDegree>,
     pub gpa: String,
     pub location: String,
     pub start: Option<String>,
@@ -88,6 +91,110 @@ pub struct ResumeEducation {
     pub coursework: Vec<String>,
     /// Honors, activities and anything else under the entry.
     pub bullets: Vec<String>,
+    // Version 1 kept one degree, major and minor here. Read so old content
+    // loads; `upgrade` moves them into `degrees`. Never written.
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub degree: String,
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub field_of_study: String,
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub minor: String,
+}
+
+/// One "X in Y" row of an education entry. `degree` is what it is
+/// ("Bachelor of Science", "B.S." as the resume wrote it, "Minor",
+/// "Concentration") and `field` what it's in. Both are free text.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(default)]
+pub struct ResumeDegree {
+    pub degree: String,
+    pub field: String,
+    // Version 2 kept lists here. Read so old content loads; `upgrade` turns
+    // them into rows. Never written.
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub majors: Vec<String>,
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub minors: Vec<String>,
+    #[serde(skip_serializing)]
+    #[schema(ignore)]
+    pub concentrations: Vec<String>,
+}
+
+impl ResumeDegree {
+    pub fn row(degree: &str, field: &str) -> Self {
+        Self {
+            degree: degree.to_owned(),
+            field: field.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    fn is_blank(&self) -> bool {
+        self.degree.trim().is_empty() && self.field.trim().is_empty()
+    }
+}
+
+/// What a row's first input says it is, for the profile's one-degree
+/// entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowKind {
+    Degree,
+    Major,
+    Minor,
+    Concentration,
+}
+
+fn row_kind(degree: &str) -> RowKind {
+    let d = degree.trim().to_lowercase();
+    let starts = |words: &[&str]| words.iter().any(|w| d.starts_with(w));
+    if starts(&["minor"]) {
+        RowKind::Minor
+    } else if starts(&["major", "double major", "second major", "co-major"]) {
+        RowKind::Major
+    } else if starts(&[
+        "concentration",
+        "specialization",
+        "specialisation",
+        "emphasis",
+        "track",
+        "option in",
+    ]) {
+        RowKind::Concentration
+    } else {
+        RowKind::Degree
+    }
+}
+
+impl ResumeEducation {
+    /// Nothing filled in (an empty degree row doesn't count).
+    fn is_blank(&self) -> bool {
+        let Self {
+            school,
+            degrees,
+            gpa,
+            location,
+            start,
+            end,
+            achievement,
+            coursework,
+            bullets,
+            ..
+        } = self;
+        school.is_empty()
+            && degrees.iter().all(ResumeDegree::is_blank)
+            && gpa.is_empty()
+            && location.is_empty()
+            && start.is_none()
+            && end.is_none()
+            && achievement.is_empty()
+            && coursework.is_empty()
+            && bullets.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -123,7 +230,8 @@ pub struct Change {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct FieldValue {
     pub field: String,
-    pub value: String,
+    /// A string for text fields, a list for lists (`majors`).
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -162,7 +270,7 @@ impl Change {
     pub fn undoable(mut self) -> Self {
         self.undo = vec![FieldValue {
             field: self.field.clone(),
-            value: self.before.clone(),
+            value: self.before.clone().into(),
         }];
         self
     }
@@ -206,8 +314,133 @@ fn coursework(line: &str) -> Option<Vec<String>> {
     )
 }
 
+/// Brings content saved by an older `CONTENT_VERSION` up to date, keeping
+/// the user's edits, and moves the parser's changes that point at what moved.
+/// Safe to run on current content (it does nothing).
+///
+/// - Version 1 had one degree, major and minor per education entry.
+/// - Version 2 had degree blocks with lists of majors, minors and
+///   concentrations. Each block becomes rows: the degree in its majors, then
+///   "Minor" in each minor and "Concentration" in each concentration.
+pub fn upgrade(c: &mut ResumeContent) {
+    for (i, e) in c.educations.iter_mut().enumerate() {
+        // Version 1 -> 2: the entry's own fields become its first block.
+        let degree = std::mem::take(&mut e.degree);
+        let field = std::mem::take(&mut e.field_of_study);
+        let minor = std::mem::take(&mut e.minor);
+        if e.degrees.is_empty() {
+            let list = |v: &str| {
+                if v.trim().is_empty() {
+                    Vec::new()
+                } else {
+                    vec![v.trim().to_owned()]
+                }
+            };
+            // Every entry gets a row to fill in, even an empty one.
+            e.degrees.push(ResumeDegree {
+                degree,
+                majors: list(&field),
+                minors: list(&minor),
+                ..ResumeDegree::default()
+            });
+        }
+
+        // Version 2 -> 3: blocks become rows. `rows[m]` is where block m's
+        // first row, minors and concentrations landed, for the change paths.
+        struct Moved {
+            first: usize,
+            minor: Option<usize>,
+            concentration: Option<usize>,
+        }
+        let mut rows = Vec::new();
+        let mut moved = Vec::new();
+        for d in std::mem::take(&mut e.degrees) {
+            let first = rows.len();
+            let field = if d.field.is_empty() {
+                d.majors.join(", ")
+            } else {
+                d.field
+            };
+            rows.push(ResumeDegree::row(&d.degree, &field));
+            let minor = (!d.minors.is_empty()).then_some(rows.len());
+            rows.extend(d.minors.iter().map(|m| ResumeDegree::row("Minor", m)));
+            let concentration = (!d.concentrations.is_empty()).then_some(rows.len());
+            rows.extend(
+                d.concentrations
+                    .iter()
+                    .map(|m| ResumeDegree::row("Concentration", m)),
+            );
+            moved.push(Moved {
+                first,
+                minor,
+                concentration,
+            });
+        }
+        e.degrees = rows;
+
+        let at = format!("educations.{i}.");
+        // An old path inside this entry to today's, and whether it held a
+        // list (its undo value is then joined into text).
+        let move_path = |f: &str| -> Option<(String, bool)> {
+            let rest = f.strip_prefix(&at)?;
+            let rest = match rest {
+                "degree" => "degrees.0.degree",
+                "field_of_study" => "degrees.0.majors",
+                "minor" => "degrees.0.minors",
+                r => r,
+            };
+            let mut parts = rest.split('.');
+            let (Some("degrees"), Some(m), Some(name), None) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                return None;
+            };
+            let to = moved.get(m.parse::<usize>().ok()?)?;
+            let (row, name, list) = match name {
+                "degree" => (to.first, "degree", false),
+                "field" => (to.first, "field", false),
+                "majors" => (to.first, "field", true),
+                "minors" => (to.minor.unwrap_or(to.first), "field", true),
+                "concentrations" => (to.concentration.unwrap_or(to.first), "field", true),
+                _ => return None,
+            };
+            Some((format!("{at}degrees.{row}.{name}"), list))
+        };
+        for ch in &mut c.changes {
+            if let Some((to, _)) = move_path(&ch.field) {
+                ch.field = to;
+            }
+            if ch.kind == ChangeKind::DegreeSplit && ch.field.starts_with(&at) {
+                // Undo puts the original line back as the only row.
+                ch.undo = vec![FieldValue {
+                    field: format!("{at}degrees"),
+                    value: serde_json::json!([{ "degree": ch.before, "field": "" }]),
+                }];
+                continue;
+            }
+            for u in &mut ch.undo {
+                if let Some((to, is_list)) = move_path(&u.field) {
+                    u.field = to;
+                    if is_list && let Some(items) = u.value.as_array() {
+                        let text: Vec<&str> = items.iter().filter_map(|v| v.as_str()).collect();
+                        u.value = text.join(", ").into();
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The parsed draft as a resume's content.
 pub fn from_parsed(parsed: &Parsed) -> ResumeContent {
+    let mut c = from_parsed_v1(parsed);
+    upgrade(&mut c);
+    c
+}
+
+/// The parse in version 1's shape (one degree per entry); `upgrade` turns it
+/// into the current one, so the parser's change paths move in one place.
+fn from_parsed_v1(parsed: &Parsed) -> ResumeContent {
     let p = &parsed.profile;
     let me = &p.personal;
     let location = [me.city.as_str(), me.region.as_str()]
@@ -264,9 +497,7 @@ pub fn from_parsed(parsed: &Parsed) -> ResumeContent {
                 }
                 ResumeEducation {
                     school: e.school.clone(),
-                    degree: e.degree.clone(),
-                    field_of_study: e.field_of_study.clone(),
-                    minor: e.minor.clone(),
+                    degrees: Vec::new(),
                     gpa: e.gpa.clone(),
                     location: e.location.clone(),
                     start: e.start.clone(),
@@ -274,6 +505,9 @@ pub fn from_parsed(parsed: &Parsed) -> ResumeContent {
                     achievement: String::new(),
                     coursework: courses,
                     bullets,
+                    degree: e.degree.clone(),
+                    field_of_study: e.field_of_study.clone(),
+                    minor: e.minor.clone(),
                 }
             })
             .collect(),
@@ -296,6 +530,57 @@ pub fn from_parsed(parsed: &Parsed) -> ResumeContent {
         changes: parsed.changes.clone(),
         unplaced: parsed.unsorted.clone(),
     }
+}
+
+/// One profile education entry's degree, built from rows.
+#[derive(Debug, Default)]
+struct ProfileDegree {
+    degree: String,
+    majors: Vec<String>,
+    minors: Vec<String>,
+    concentrations: Vec<String>,
+}
+
+/// An entry's rows as the profile's degrees, one per degree row. A "Major",
+/// "Minor" or "Concentration" row adds to the degree above it (or the first
+/// one, when it comes before any degree). At least one degree comes back.
+fn profile_degrees(rows: &[ResumeDegree]) -> Vec<ProfileDegree> {
+    let mut out: Vec<ProfileDegree> = Vec::new();
+    // Rows before the first degree, for that degree.
+    let mut early = ProfileDegree::default();
+    for r in rows.iter().filter(|r| !r.is_blank()) {
+        let field = r.field.trim().to_owned();
+        let kind = row_kind(&r.degree);
+        if kind == RowKind::Degree {
+            let mut d = ProfileDegree {
+                degree: r.degree.trim().to_owned(),
+                ..Default::default()
+            };
+            if !field.is_empty() {
+                d.majors.push(field);
+            }
+            if out.is_empty() {
+                d.majors.append(&mut early.majors);
+                d.minors.append(&mut early.minors);
+                d.concentrations.append(&mut early.concentrations);
+            }
+            out.push(d);
+            continue;
+        }
+        if field.is_empty() {
+            continue;
+        }
+        let d = out.last_mut().unwrap_or(&mut early);
+        match kind {
+            RowKind::Major => d.majors.push(field),
+            RowKind::Minor => d.minors.push(field),
+            _ => d.concentrations.push(field),
+        }
+    }
+    if out.is_empty() {
+        out.push(early);
+    }
+    out
 }
 
 /// "Kevin Y. Lam" -> ("Kevin", "Y.", "Lam"); one word is a first name.
@@ -347,11 +632,13 @@ pub fn to_profile(c: &ResumeContent) -> Profile {
                 })
             })
             .collect(),
+        // The profile has one degree per education entry (application forms
+        // ask for it that way), so each degree becomes its own entry.
         educations: c
             .educations
             .iter()
-            .filter(|e| **e != ResumeEducation::default())
-            .map(|e| {
+            .filter(|e| !e.is_blank())
+            .flat_map(|e| {
                 let mut details: Vec<String> = std::iter::once(e.achievement.clone())
                     .filter(|a| !a.trim().is_empty())
                     .chain(e.bullets.iter().cloned())
@@ -359,17 +646,26 @@ pub fn to_profile(c: &ResumeContent) -> Profile {
                 if !e.coursework.is_empty() {
                     details.push(format!("Coursework: {}", e.coursework.join(", ")));
                 }
-                Education {
-                    school: e.school.clone(),
-                    degree: e.degree.clone(),
-                    field_of_study: e.field_of_study.clone(),
-                    minor: e.minor.clone(),
-                    gpa: e.gpa.clone(),
-                    location: e.location.clone(),
-                    start: e.start.clone(),
-                    end: e.end.clone(),
-                    details: details.join("\n"),
-                }
+                profile_degrees(&e.degrees)
+                    .into_iter()
+                    .map(|d| {
+                        let mut details = details.clone();
+                        if !d.concentrations.is_empty() {
+                            details.push(format!("Concentration: {}", d.concentrations.join(", ")));
+                        }
+                        Education {
+                            school: e.school.clone(),
+                            degree: d.degree,
+                            field_of_study: d.majors.join(", "),
+                            minor: d.minors.join(", "),
+                            gpa: e.gpa.clone(),
+                            location: e.location.clone(),
+                            start: e.start.clone(),
+                            end: e.end.clone(),
+                            details: details.join("\n"),
+                        }
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect(),
         experiences: c
@@ -538,11 +834,31 @@ pub fn validate(c: &ResumeContent) -> Result<ResumeContent, ProfileError> {
         let path = format!("educations.{i}");
         let f = |name: &str, v: &str| line(&format!("{path}.{name}"), v);
         let (start, end) = range(&path, &e.start, &e.end)?;
+        if e.degrees.len() > 20 {
+            return Err(err(
+                format!("{path}.degrees"),
+                "At most 20 rows per school.",
+            ));
+        }
+        let mut degrees = Vec::new();
+        for (j, d) in e.degrees.iter().enumerate() {
+            let at = format!("{path}.degrees.{j}");
+            let degree = line(&format!("{at}.degree"), &d.degree)?;
+            if degree.chars().count() > 100 {
+                return Err(err(
+                    format!("{at}.degree"),
+                    "Keep this under 100 characters.",
+                ));
+            }
+            // Empty rows keep their places, like empty entries.
+            degrees.push(ResumeDegree::row(
+                &degree,
+                &line(&format!("{at}.field"), &d.field)?,
+            ));
+        }
         let ed = ResumeEducation {
             school: f("school", &e.school)?,
-            degree: f("degree", &e.degree)?,
-            field_of_study: f("field_of_study", &e.field_of_study)?,
-            minor: f("minor", &e.minor)?,
+            degrees,
             gpa: f("gpa", &e.gpa)?,
             location: f("location", &e.location)?,
             start,
@@ -550,6 +866,7 @@ pub fn validate(c: &ResumeContent) -> Result<ResumeContent, ProfileError> {
             achievement: f("achievement", &e.achievement)?,
             coursework: list(&format!("{path}.coursework"), &e.coursework, 100, 40)?,
             bullets: list(&format!("{path}.bullets"), &e.bullets, BULLET, MAX_BULLETS)?,
+            ..Default::default()
         };
         educations.push(ed);
     }
@@ -734,6 +1051,137 @@ mod tests {
     }
 
     #[test]
+    fn version_1_content_upgrades_in_place() {
+        // As stored by version 1: one degree, major and minor per entry, and
+        // the parser's degree-split change pointing at them.
+        let json = serde_json::json!({
+            "educations": [{
+                "school": "Lakeside State University",
+                "degree": "Bachelor of Science",
+                "field_of_study": "Information Systems",
+                "minor": "Statistics",
+                "coursework": ["Databases"]
+            }],
+            "changes": [{
+                "field": "educations.0.degree",
+                "kind": "degree_split",
+                "before": "BACHELOR OF SCIENCE IN INFORMATION SYSTEMS, MINOR STATISTICS",
+                "after": "Bachelor of Science · Information Systems · Minor in Statistics",
+                "undo": [
+                    {"field": "educations.0.degree", "value": "BACHELOR OF SCIENCE IN INFORMATION SYSTEMS, MINOR STATISTICS"},
+                    {"field": "educations.0.field_of_study", "value": ""},
+                    {"field": "educations.0.minor", "value": ""}
+                ]
+            }]
+        });
+        let mut c: ResumeContent = serde_json::from_value(json).unwrap();
+        upgrade(&mut c);
+        let e = &c.educations[0];
+        assert_eq!(
+            e.degrees,
+            [
+                ResumeDegree::row("Bachelor of Science", "Information Systems"),
+                ResumeDegree::row("Minor", "Statistics"),
+            ]
+        );
+        assert_eq!(e.coursework, ["Databases"], "other edits are kept");
+        let ch = &c.changes[0];
+        assert_eq!(ch.field, "educations.0.degrees.0.degree");
+        assert_eq!(
+            ch.undo,
+            [FieldValue {
+                field: "educations.0.degrees".into(),
+                value: serde_json::json!([{
+                    "degree": "BACHELOR OF SCIENCE IN INFORMATION SYSTEMS, MINOR STATISTICS",
+                    "field": ""
+                }]),
+            }]
+        );
+        // The old fields are never written back.
+        let out = serde_json::to_value(&c).unwrap();
+        assert!(out["educations"][0].get("field_of_study").is_none());
+        assert!(out["educations"][0]["degrees"][0].get("majors").is_none());
+        // Running it again changes nothing.
+        let before = c.clone();
+        upgrade(&mut c);
+        assert_eq!(c, before);
+    }
+
+    #[test]
+    fn version_2_blocks_become_rows() {
+        let json = serde_json::json!({
+            "educations": [{
+                "school": "Lakeside State University",
+                "degrees": [
+                    {"degree": "Minor", "majors": ["Business"], "minors": [], "concentrations": []},
+                    {"degree": "", "majors": [], "minors": [], "concentrations": []},
+                    {"degree": "Bachelor of Science", "majors": ["Computer Science", "Mathematics"],
+                     "minors": ["Statistics"], "concentrations": ["Machine Learning"]}
+                ]
+            }],
+            "changes": [
+                {"field": "educations.0.degrees.2.degree", "kind": "capitals",
+                 "before": "BACHELOR OF SCIENCE", "after": "Bachelor of Science",
+                 "undo": [{"field": "educations.0.degrees.2.degree", "value": "BACHELOR OF SCIENCE"}]},
+                {"field": "educations.0.degrees.2.minors", "kind": "capitals",
+                 "before": "STATISTICS", "after": "Statistics",
+                 "undo": [{"field": "educations.0.degrees.2.minors", "value": ["STATISTICS"]}]}
+            ]
+        });
+        let mut c: ResumeContent = serde_json::from_value(json).unwrap();
+        upgrade(&mut c);
+        assert_eq!(
+            c.educations[0].degrees,
+            [
+                ResumeDegree::row("Minor", "Business"),
+                ResumeDegree::row("", ""),
+                ResumeDegree::row("Bachelor of Science", "Computer Science, Mathematics"),
+                ResumeDegree::row("Minor", "Statistics"),
+                ResumeDegree::row("Concentration", "Machine Learning"),
+            ]
+        );
+        assert_eq!(c.changes[0].field, "educations.0.degrees.2.degree");
+        assert_eq!(c.changes[1].field, "educations.0.degrees.3.field");
+        assert_eq!(c.changes[1].undo[0].field, "educations.0.degrees.3.field");
+        assert_eq!(c.changes[1].undo[0].value, "STATISTICS");
+        let before = c.clone();
+        upgrade(&mut c);
+        assert_eq!(c, before);
+    }
+
+    #[test]
+    fn each_degree_becomes_a_profile_entry() {
+        let mut c = from_parsed(&parsed());
+        c.educations[0].degrees = vec![
+            ResumeDegree::row("Minor", "Business"),
+            ResumeDegree::row("Bachelor of Science", "Computer Science"),
+            ResumeDegree::row("Major", "Mathematics"),
+            ResumeDegree::row("Concentration", "Artificial Intelligence"),
+            ResumeDegree::row("Master of Science", "Robotics"),
+            ResumeDegree::default(),
+        ];
+        let p = to_profile(&validate(&c).unwrap());
+        assert_eq!(p.educations.len(), 2);
+        assert_eq!(
+            p.educations[0].field_of_study,
+            "Computer Science, Mathematics"
+        );
+        assert_eq!(p.educations[0].minor, "Business");
+        assert!(
+            p.educations[0]
+                .details
+                .contains("Concentration: Artificial Intelligence")
+        );
+        assert_eq!(
+            (
+                p.educations[1].degree.as_str(),
+                p.educations[1].school.as_str()
+            ),
+            ("Master of Science", "Lakeside State University")
+        );
+    }
+
+    #[test]
     fn change_paths() {
         let c = Change::new("title", ChangeKind::Capitals, "QA TESTER", "QA Tester")
             .undoable()
@@ -741,5 +1189,20 @@ mod tests {
         assert_eq!(c.field, "experiences.2.title");
         assert_eq!(c.undo[0].field, "experiences.2.title");
         assert_eq!(c.undo[0].value, "QA TESTER");
+        // A parsed resume's entries all start with a degree row.
+        let parsed = from_parsed(&parsed());
+        assert_eq!(parsed.educations[0].degrees.len(), 1);
+        // With no degree rows, an entry still becomes one profile entry.
+        let mut c = parsed;
+        c.educations[0].degrees = vec![ResumeDegree::row("Minor", "Business")];
+        let p = to_profile(&c);
+        assert_eq!(p.educations.len(), 1);
+        assert_eq!(
+            (
+                p.educations[0].degree.as_str(),
+                p.educations[0].minor.as_str()
+            ),
+            ("", "Business")
+        );
     }
 }

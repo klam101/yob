@@ -6,6 +6,7 @@ import type { ResumeChange } from "@/api/client";
 import { GrowingTextarea, IconButton, invalidClass, useFieldError, useFieldPath } from "@/components/profile/fields";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SuggestInput } from "@/components/ui/suggest";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isAllCaps, tidyCaps } from "@/lib/caps";
 import { cn } from "cn";
@@ -122,6 +123,8 @@ export function InlineText({
   icon: Icon,
   fit = false,
   tag = true,
+  suggestions,
+  autoFocus,
 }: {
   /** The field's name in the content, for errors and change marks. */
   name: string;
@@ -139,6 +142,9 @@ export function InlineText({
   fit?: boolean;
   /** Show the "Changed" tag here; off when the caller places it. */
   tag?: boolean;
+  /** Suggestions in a menu below, narrowed as you type (any text is allowed). */
+  suggestions?: readonly string[];
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const path = useFieldPath(name);
@@ -168,9 +174,25 @@ export function InlineText({
               className,
             )}
           />
+        ) : suggestions ? (
+          <SuggestInput
+            {...common}
+            autoFocus={autoFocus}
+            value={value}
+            options={suggestions}
+            onChange={onChange}
+            className={cn(
+              inlineClass,
+              fit && "field-sizing-content w-auto min-w-20 max-w-full",
+              !value && emptyClass,
+              error && invalidClass,
+              className,
+            )}
+          />
         ) : (
           <input
             {...common}
+            autoFocus={autoFocus}
             type={type}
             value={value}
             autoComplete="off"

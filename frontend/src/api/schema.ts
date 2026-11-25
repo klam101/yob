@@ -905,7 +905,8 @@ export interface components {
         };
         FieldValue: {
             field: string;
-            value: string;
+            /** @description A string for text fields, a list for lists (`majors`). */
+            value: unknown;
         };
         /**
          * @description Which resume filled the profile automatically, for the "check what we
@@ -1292,6 +1293,17 @@ export interface components {
              */
             unplaced: string[];
         };
+        /**
+         * @description One "X in Y" row of an education entry. `degree` is what it is
+         *     ("Bachelor of Science", "B.S." as the resume wrote it, "Minor",
+         *     "Concentration") and `field` what it's in. Both are free text.
+         */
+        ResumeDegree: {
+            /** @default  */
+            degree: string;
+            /** @default  */
+            field: string;
+        };
         ResumeDetail: {
             content: components["schemas"]["ResumeContent"];
             info: components["schemas"]["ResumeInfo"];
@@ -1309,18 +1321,18 @@ export interface components {
             bullets: string[];
             /** @default [] */
             coursework: string[];
-            /** @default  */
-            degree: string;
+            /**
+             * @description "X in Y" rows: "Bachelor of Science" in "Computer Science", "Minor"
+             *     in "Business", "Major" in "Mathematics" for a double major.
+             * @default []
+             */
+            degrees: components["schemas"]["ResumeDegree"][];
             /** @default null */
             end: string | null;
-            /** @default  */
-            field_of_study: string;
             /** @default  */
             gpa: string;
             /** @default  */
             location: string;
-            /** @default  */
-            minor: string;
             /** @default  */
             school: string;
             /** @default null */

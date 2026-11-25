@@ -4,7 +4,8 @@ import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Input, inputClass } from "@/components/ui/input";
+import { SuggestInput } from "@/components/ui/suggest";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "cn";
@@ -120,8 +121,11 @@ export function TextField({
   placeholder,
   className,
   autoComplete,
+  suggestions,
 }: {
   label: string;
+  /** Suggestions in a menu below, narrowed as you type (any text is allowed). */
+  suggestions?: readonly string[];
   /** The field's name in the API, to show its error here. */
   name?: string;
   value: string;
@@ -136,20 +140,34 @@ export function TextField({
   const error = useFieldError(name);
   return (
     <Field label={label} hint={hint} error={error} required={required} className={className}>
-      {(id, describedBy, invalid) => (
-        <Input
-          id={id}
-          type={type}
-          value={value}
-          placeholder={placeholder}
-          autoComplete={autoComplete ?? "off"}
-          aria-invalid={invalid || undefined}
-          aria-describedby={describedBy}
-          aria-required={required || undefined}
-          className={cn(invalid && invalidClass)}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
+      {(id, describedBy, invalid) =>
+        suggestions ? (
+          <SuggestInput
+            id={id}
+            value={value}
+            options={suggestions}
+            onChange={onChange}
+            placeholder={placeholder}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
+            aria-required={required || undefined}
+            className={cn(inputClass, invalid && invalidClass)}
+          />
+        ) : (
+          <Input
+            id={id}
+            type={type}
+            value={value}
+            placeholder={placeholder}
+            autoComplete={autoComplete ?? "off"}
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
+            aria-required={required || undefined}
+            className={cn(invalid && invalidClass)}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )
+      }
     </Field>
   );
 }

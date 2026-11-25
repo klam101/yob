@@ -553,7 +553,7 @@ fn recorded_changes() {
     let undo: Vec<(&str, &str)> = degree
         .undo
         .iter()
-        .map(|u| (u.field.as_str(), u.value.as_str()))
+        .map(|u| (u.field.as_str(), u.value.as_str().unwrap_or("(not text)")))
         .collect();
     assert_eq!(
         undo,
@@ -561,6 +561,32 @@ fn recorded_changes() {
             ("educations.0.degree", degree.before.as_str()),
             ("educations.0.field_of_study", ""),
             ("educations.0.minor", "")
+        ]
+    );
+    // As a resume's content, the change points at the first row, and undo
+    // puts the original line back as the only row.
+    let content = yob_core::profile::resume_content::from_parsed(&parsed);
+    let split = content
+        .changes
+        .iter()
+        .find(|c| c.kind == ChangeKind::DegreeSplit)
+        .unwrap();
+    assert_eq!(split.field, "educations.0.degrees.0.degree");
+    assert_eq!(split.undo[0].field, "educations.0.degrees");
+    assert_eq!(
+        split.undo[0].value,
+        serde_json::json!([{ "degree": degree.before, "field": "" }])
+    );
+    let rows: Vec<(&str, &str)> = content.educations[0]
+        .degrees
+        .iter()
+        .map(|d| (d.degree.as_str(), d.field.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Bachelor of Science", "Information Systems"),
+            ("Minor", "Statistics")
         ]
     );
     assert_eq!(find("experiences.0.title").kind, ChangeKind::Capitals);

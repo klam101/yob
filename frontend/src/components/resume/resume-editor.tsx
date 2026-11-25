@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ResumeChange,
   ResumeContent,
+  ResumeDegree,
   ResumeDetail,
   ResumeEducation,
   ResumeExperience,
@@ -49,6 +50,7 @@ import {
 import { Sheet, SheetBody, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isAllCaps, tidyCaps } from "@/lib/caps";
+import { DEGREE_ROWS, FIELDS_OF_STUDY } from "@/lib/degrees";
 import { cn } from "cn";
 import { ChangesPanel } from "./changes-panel";
 import { ChangedTag, type Changes, ChangesContext, InlineMonth, InlineText } from "./inline";
@@ -67,6 +69,16 @@ function setPath<T>(obj: T, path: string, value: unknown): T {
     copy[key] = value;
   }
   return copy as T;
+}
+
+/** Whether `path` ("educations.0.degrees.1.field") names something in `c`. */
+function resolves(c: unknown, path: string): boolean {
+  let o: unknown = c;
+  for (const k of path.split(".")) {
+    if (o === null || typeof o !== "object" || !(k in o)) return false;
+    o = (o as Record<string, unknown>)[k];
+  }
+  return true;
 }
 
 /**
@@ -104,11 +116,13 @@ function capsFields(c: ResumeContent): [string, string][] {
     ["header.subtitle", c.header.subtitle],
     ["header.location", c.header.location],
   ];
-  c.educations.forEach((e, i) =>
-    (["school", "degree", "field_of_study", "minor", "location", "achievement"] as const).forEach((k) =>
-      out.push([`educations.${i}.${k}`, e[k]]),
-    ),
-  );
+  c.educations.forEach((e, i) => {
+    (["school", "location", "achievement"] as const).forEach((k) => out.push([`educations.${i}.${k}`, e[k]]));
+    e.degrees.forEach((d, j) => {
+      const at = `educations.${i}.degrees.${j}`;
+      out.push([`${at}.degree`, d.degree], [`${at}.field`, d.field]);
+    });
+  });
   c.experiences.forEach((x, i) =>
     (["company", "title", "location"] as const).forEach((k) => out.push([`experiences.${i}.${k}`, x[k]])),
   );
@@ -126,11 +140,11 @@ const SECTION_TITLE: Record<SectionKind, string> = {
   skills: "Skills",
 };
 
+const emptyDegree = (): ResumeDegree => ({ degree: "", field: "" });
+
 const emptyEducation = (): ResumeEducation => ({
   school: "",
-  degree: "",
-  field_of_study: "",
-  minor: "",
+  degrees: [emptyDegree()],
   gpa: "",
   location: "",
   start: null,
@@ -306,7 +320,10 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
           changes: shiftChanges(rest.changes, "header.links", at, -1),
         };
       }
-      return (change.undo ?? []).reduce((acc, u) => setPath(acc, u.field, u.value), rest);
+      const next = (change.undo ?? []).reduce((acc, u) => setPath(acc, u.field, u.value), rest);
+      // An undo can replace a whole list (the degree rows); changes on rows
+      // that are gone go too.
+      return { ...next, changes: next.changes.filter((ch) => resolves(next, ch.field)) };
     });
   }
 
@@ -808,6 +825,97 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+/**
+ * An education entry's "X in Y" rows: "Bachelor of Science" in "Computer
+ * Science", "Minor" in "Business". Both boxes suggest as you type and take
+ * any text. Each "+" adds one row.
+ */
+function Degrees({
+  degrees,
+  at,
+  set,
+  update,
+}: {
+  degrees: ResumeDegree[];
+  at: string;
+  set: Edit["set"];
+  update: Edit["update"];
+}) {
+  // The row just added, so its first box gets the cursor.
+  const [added, setAdded] = useState<number | null>(null);
+  return (
+    <FieldScope path="degrees">
+      <div className="space-y-1.5 text-sm">
+        {degrees.map((d, j) => {
+          const path = `${at}.degrees.${j}`;
+          return (
+            <FieldScope key={j} path={String(j)}>
+              <div className="group/degree flex flex-wrap items-start gap-1 sm:flex-nowrap">
+                <div className="w-full sm:w-60 sm:shrink-0">
+                  <InlineText
+                    tag={false}
+                    name="degree"
+                    label={`Row ${j + 1}: degree, major or minor`}
+                    placeholder="Degree, major or minor"
+                    suggestions={DEGREE_ROWS}
+                    autoFocus={added === j}
+                    value={d.degree}
+                    onChange={(v) => set(`${path}.degree`, v)}
+                    className="font-medium"
+                  />
+                </div>
+                <span className="flex h-7.5 items-center px-1 text-muted-foreground">in</span>
+                <div className="min-w-0 flex-1">
+                  <InlineText
+                    tag={false}
+                    name="field"
+                    label={`Row ${j + 1}: field of study`}
+                    placeholder="Field of study"
+                    suggestions={FIELDS_OF_STUDY}
+                    value={d.field}
+                    onChange={(v) => set(`${path}.field`, v)}
+                  />
+                </div>
+                {/* The row's tags at its end, so they never cover a box. */}
+                <ChangedTag path={`${path}.degree`} className="mt-0.75" />
+                <ChangedTag path={`${path}.field`} className="mt-0.75" />
+                <div className="sm:opacity-0 sm:transition-opacity sm:group-focus-within/degree:opacity-100 sm:group-hover/degree:opacity-100">
+                  <IconButton
+                    label={`Remove row ${j + 1}`}
+                    onClick={() =>
+                      update((c) => {
+                        const list = `${at}.degrees`;
+                        const next = setPath(
+                          c,
+                          list,
+                          degrees.filter((_, k) => k !== j),
+                        );
+                        return { ...next, changes: shiftChanges(next.changes, list, j, -1) };
+                      })
+                    }
+                  >
+                    <Trash2 />
+                  </IconButton>
+                </div>
+              </div>
+            </FieldScope>
+          );
+        })}
+        <Button
+          variant="light"
+          size="xs"
+          onClick={() => {
+            setAdded(degrees.length);
+            set(`${at}.degrees`, [...degrees, emptyDegree()]);
+          }}
+        >
+          <Plus /> Degree, major or minor
+        </Button>
+      </div>
+    </FieldScope>
+  );
+}
+
 function Educations({ content, set, update, shift, removeRow }: Edit) {
   return (
     <FieldScope path="educations">
@@ -825,18 +933,7 @@ function Educations({ content, set, update, shift, removeRow }: Edit) {
                 <div className="max-w-md">
                   <InlineText name="location" label="Location" placeholder="Location…" value={e.location} onChange={(v) => set(`${at}.location`, v)} className="text-sm" />
                 </div>
-                {/* The degree line reads as one sentence; each part is its own field. */}
-                <div className="flex flex-wrap items-center gap-x-0.5 text-sm">
-                  <InlineText fit tag={false} name="degree" label="Degree" placeholder="Degree" value={e.degree} onChange={(v) => set(`${at}.degree`, v)} />
-                  <span className="text-muted-foreground">in</span>
-                  <InlineText fit tag={false} name="field_of_study" label="Major" placeholder="Major" value={e.field_of_study} onChange={(v) => set(`${at}.field_of_study`, v)} />
-                  <span className="text-muted-foreground">· Minor in</span>
-                  <InlineText fit tag={false} name="minor" label="Minor" placeholder="Minor" value={e.minor} onChange={(v) => set(`${at}.minor`, v)} />
-                  {/* One tag for the whole line, at its end. */}
-                  {["degree", "field_of_study", "minor"].map((f) => (
-                    <ChangedTag key={f} path={`${at}.${f}`} className="ml-1" />
-                  ))}
-                </div>
+                <Degrees degrees={e.degrees} at={at} set={set} update={update} />
                 <div className="max-w-md">
                   <InlineText
                     name="achievement"
