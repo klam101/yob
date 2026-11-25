@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, PencilLine, Sparkles, X } from "lucide-react";
+import Link from "next/link";
 import type { Facets } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,13 +11,15 @@ import {
   EMPLOYMENT,
   type FilterKey,
   POSTED_WITHIN,
-  SALARY_MIN,
   SENIORITY,
   SOURCE,
   activeCount,
   clearFilters,
   labelOf,
   listOf,
+  salaryLabel,
+  salaryOptions,
+  sameFilters,
   toggleInList,
   withValue,
 } from "@/lib/filters";
@@ -33,6 +36,7 @@ export function FilterChips({ facets }: { facets: Facets }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <PreferencesChip />
       <AllFiltersDialog facets={facets} />
 
       <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
@@ -45,7 +49,12 @@ export function FilterChips({ facets }: { facets: Facets }) {
       />
       <CheckChip label="Experience" filterKey="seniority" options={SENIORITY} />
       <CheckChip label="Job type" filterKey="employment_type" options={EMPLOYMENT} />
-      <RadioChip label="Salary" filterKey="salary_min" options={SALARY_MIN} anyLabel="Any salary" />
+      <RadioChip
+        label="Salary"
+        filterKey="salary_min"
+        options={salaryOptions(query.salary_min)}
+        anyLabel="Any salary"
+      />
       <CheckChip label="Department" filterKey="department" options={facetChoices(facets.departments)} scroll />
       <CompanyChip top={facetChoices(facets.companies)} />
       <CheckChip label="Source" filterKey="source" options={SOURCE} />
@@ -64,6 +73,49 @@ export function FilterChips({ facets }: { facets: Facets }) {
           <X /> Clear filters
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Your job preferences as one chip: highlighted while they're applied,
+ * one click to go back to them after changing filters.
+ */
+function PreferencesChip() {
+  const { query, defaults, apply } = useFeed();
+  if (activeCount(defaults) === 0) {
+    return (
+      <Button asChild variant="bordered" size="sm" shape="pill">
+        <Link href="/preferences">
+          <Sparkles /> Set job preferences
+        </Link>
+      </Button>
+    );
+  }
+  const applied = sameFilters(query, defaults);
+  return (
+    <div className="flex items-center">
+      <Button
+        variant={applied ? "flat" : "bordered"}
+        size="sm"
+        shape="pill"
+        aria-pressed={applied}
+        onClick={() => apply(query.sort ? { ...defaults, sort: query.sort } : defaults)}
+        className={cn("rounded-r-none pr-2.5", applied && "border-primary/25")}
+      >
+        <Sparkles /> {applied ? "My preferences" : "Back to my preferences"}
+      </Button>
+      <Button
+        asChild
+        variant={applied ? "flat" : "bordered"}
+        size="sm"
+        shape="pill"
+        className={cn("-ml-px rounded-l-none px-2.5", applied && "border-primary/25")}
+      >
+        <Link href="/preferences" aria-label="Edit job preferences">
+          <PencilLine />
+        </Link>
+      </Button>
     </div>
   );
 }
@@ -162,7 +214,11 @@ function RadioChip({
   const value = query[filterKey];
   return (
     <Popover>
-      <ChipTrigger label={label} summary={labelOf(options, value)} active={!!value} />
+      <ChipTrigger
+        label={label}
+        summary={labelOf(options, value) ?? (filterKey === "salary_min" ? salaryLabel(value) : value)}
+        active={!!value}
+      />
       <PopoverContent align="start" className="w-60 p-1.5">
         <ChipHeader label={label} />
         <RadioList

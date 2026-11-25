@@ -8,6 +8,8 @@ import { cn } from "cn";
 type Feed = {
   /** The filters currently applied (from the URL, read on the server). */
   query: Query;
+  /** The filters from the user's job preferences; empty when there are none. */
+  defaults: Query;
   /** True while the server renders results for a new query. */
   isPending: boolean;
   apply: (next: Query) => void;
@@ -15,7 +17,15 @@ type Feed = {
 
 const FeedContext = createContext<Feed | null>(null);
 
-export function FeedProvider({ query, children }: { query: Query; children: React.ReactNode }) {
+export function FeedProvider({
+  query,
+  defaults,
+  children,
+}: {
+  query: Query;
+  defaults: Query;
+  children: React.ReactNode;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -28,7 +38,7 @@ export function FeedProvider({ query, children }: { query: Query; children: Reac
     [router],
   );
 
-  const value = useMemo(() => ({ query, isPending, apply }), [query, isPending, apply]);
+  const value = useMemo(() => ({ query, defaults, isPending, apply }), [query, defaults, isPending, apply]);
   return <FeedContext value={value}>{children}</FeedContext>;
 }
 

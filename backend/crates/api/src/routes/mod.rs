@@ -14,6 +14,7 @@ mod companies;
 mod feeds;
 mod health;
 mod jobs;
+mod preferences;
 mod profile;
 
 /// Every feature adds its routes here with `.merge(feature::routes())`.
@@ -25,6 +26,7 @@ pub fn router(state: AppState, config: &Config) -> anyhow::Result<Router> {
         .merge(feeds::routes())
         .merge(jobs::routes())
         .merge(profile::routes())
+        .merge(preferences::routes())
         .split_for_parts();
 
     let cors = CorsLayer::new()

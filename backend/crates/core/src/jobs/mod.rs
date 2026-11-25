@@ -12,6 +12,7 @@ pub mod http;
 pub mod ingest;
 pub mod model;
 pub mod normalize;
+pub mod search;
 pub mod seed;
 pub mod sources;
 pub mod store;

@@ -70,6 +70,26 @@ export function JobBadges({ job }: { job: JobSummary }) {
           <TooltipContent>Open more than 60 days or reposted more than twice</TooltipContent>
         </Tooltip>
       )}
+      {job.no_sponsorship && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="secondary" size="sm" tabIndex={0}>
+              No visa sponsorship
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>The posting says the employer won&apos;t sponsor a work visa</TooltipContent>
+        </Tooltip>
+      )}
+      {job.citizens_only && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="secondary" size="sm" tabIndex={0}>
+              U.S. citizens only
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>The posting requires U.S. citizenship or a security clearance</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }
