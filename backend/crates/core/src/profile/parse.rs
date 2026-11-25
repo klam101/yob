@@ -14,7 +14,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::{Education, Experience, Link, Profile, Project, Skill, link_kind, normalize_url};
+use super::{
+    Education, Experience, Link, LinkKind, Profile, Project, Skill, link_kind, normalize_url,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct Parsed {
@@ -524,7 +526,13 @@ fn take_dates(lines: &mut [String]) -> Dates {
             {
                 continue;
             }
-            let month = to_month(d.as_str(), true);
+            let bare_year = d.as_str().chars().all(|ch| ch.is_ascii_digit());
+            // "Class of 2026", "Expected 2026": US degrees mostly finish in May.
+            let month = if bare_year && c.name("expected").is_some() {
+                Some(format!("{}-05", d.as_str()))
+            } else {
+                to_month(d.as_str(), true)
+            };
             let whole = c.get(0).unwrap().range();
             line.replace_range(whole, " ");
             return Dates {
@@ -796,7 +804,9 @@ fn entries(lines: &[&str]) -> Vec<Entry> {
             && cur.header.len() >= 2
             && ends_sentence(line)
             && line.split_whitespace().count() >= 4;
-        if !cur.header.is_empty() && !dated && (sentence_like(line) || short_sentence) {
+        // A long line that wraps onto a lowercase line is a sentence too.
+        let wraps = cur.header_has_date && line.chars().count() > 50 && starts_lower(next);
+        if !cur.header.is_empty() && !dated && (sentence_like(line) || short_sentence || wraps) {
             cur.bullets.push(line.to_owned());
             last_was_bullet = true;
             continue;
@@ -847,7 +857,24 @@ fn experience(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Experience> {
     {
         parts = vec![t.trim().to_owned(), c.trim().to_owned()];
     }
-    let title_idx = parts.iter().position(|p| has_word(p, TITLE_WORDS));
+    // The piece most like a title: one ending in a title word ("Business
+    // Intelligence Assistant") beats one merely containing one ("Student
+    // Consulting Group").
+    let title_score = |p: &str| {
+        let last = p
+            .split(|c: char| !c.is_alphanumeric() && c != '-')
+            .rfind(|w| !w.is_empty())
+            .unwrap_or("")
+            .to_lowercase();
+        if TITLE_WORDS.contains(&last.as_str()) {
+            2
+        } else {
+            u8::from(has_word(p, TITLE_WORDS))
+        }
+    };
+    let title_idx = (0..parts.len())
+        .filter(|&i| title_score(&parts[i]) > 0)
+        .max_by_key(|&i| (title_score(&parts[i]), std::cmp::Reverse(i)));
     let (title, company) = match (title_idx, parts.len()) {
         (_, 0) => (String::new(), String::new()),
         (Some(t), _) => {
@@ -868,6 +895,29 @@ fn experience(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Experience> {
             (parts.remove(0), company)
         }
     };
+    // "NIWC Atlantic - Clemson Capstone": pieces left over from the
+    // company's own line are part of its name.
+    let mut company = company;
+    if !company.is_empty()
+        && let Some(line) = e.header.iter().find(|l| l.contains(company.as_str()))
+    {
+        let mut i = 0;
+        while i < parts.len() {
+            if line.contains(parts[i].as_str())
+                && (title.is_empty() || !line.contains(title.as_str()))
+            {
+                let piece = parts.remove(i);
+                let (a, b) = (line.find(company.as_str()), line.find(piece.as_str()));
+                company = if b < a {
+                    format!("{piece} - {company}")
+                } else {
+                    format!("{company} - {piece}")
+                };
+            } else {
+                i += 1;
+            }
+        }
+    }
     if !parts.is_empty() {
         unsorted.push(format!(
             "Experience ({}): {}",
@@ -933,55 +983,42 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
         .or(if parts.is_empty() { None } else { Some(0) })
         .map(|i| parts.remove(i))
         .unwrap_or_default();
-    let (mut degree, mut field) = (String::new(), String::new());
-    let mut minor = None;
-    if let Some(i) = parts.iter().position(|p| DEGREE.is_match(p)) {
-        let mut d = parts.remove(i);
-        // ", Minor in Mathematics" is a detail, not the field.
-        if let Some(at) = d.to_lowercase().find("minor") {
-            let cut = d[..at]
-                .trim_end()
-                .trim_end_matches([',', ';', '|'])
-                .trim_end()
-                .len();
-            minor = Some(d[at..].trim().to_owned());
-            d.truncate(cut);
-        }
-        // "Bachelor of Science in Computer Science", "B.S. Computer Science",
-        // "B.S., Computer Science"
-        if let Some((a, b)) = d.split_once(" in ").or_else(|| d.split_once(", ")) {
-            degree = a.trim().to_owned();
-            field = b.trim().to_owned();
-        } else if let Some(m) = DEGREE.find(&d)
-            && m.start() == 0
-            && d.len() > m.end() + 2
-            && !d[..m.end()].to_lowercase().starts_with("bachelor")
-            && !d[..m.end()].to_lowercase().starts_with("master")
-        {
-            // The regex stops before a final period ("B.S" of "B.S.").
-            let end = m.end() + usize::from(d[m.end()..].starts_with('.'));
-            degree = d[..end].trim().to_owned();
-            field = d[end..]
-                .trim_matches(|c: char| c.is_whitespace() || c == ',' || c == '.')
-                .to_owned();
-        } else {
-            degree = d;
-        }
+    let (mut degree, mut field, mut minor) = (String::new(), String::new(), String::new());
+    // The degree line is taken whole from the header, as `pieces` would
+    // split it at the comma before the minor.
+    if let Some(i) = e
+        .header
+        .iter()
+        .position(|l| DEGREE.is_match(l) && !has_word(l, SCHOOL_WORDS))
+    {
+        (degree, field, minor) = degree_line(&e.header[i]);
+        let words = degree_words(&e.header[i]);
+        parts.retain(|p| !degree_words(p).iter().all(|w| words.contains(w)));
+    } else if let Some(i) = parts.iter().position(|p| DEGREE.is_match(p)) {
+        (degree, field, minor) = degree_line(&parts.remove(i));
     }
     // "Major: X" / "Minor: Y" lines.
-    let mut details: Vec<String> = minor.into_iter().collect();
+    let mut details: Vec<String> = Vec::new();
     for p in parts {
         let lower = p.to_lowercase();
-        if field.is_empty() && (lower.starts_with("major") || lower.starts_with("concentration")) {
-            field = p
-                .split_once(':')
+        let value = || {
+            p.split_once(':')
                 .map(|(_, v)| v.trim().to_owned())
-                .unwrap_or(p);
+                .unwrap_or_else(|| p.clone())
+        };
+        if field.is_empty() && (lower.starts_with("major") || lower.starts_with("concentration")) {
+            field = value();
+        } else if minor.is_empty() && lower.starts_with("minor") {
+            minor = value()
+                .trim_start_matches(|c: char| c.is_whitespace())
+                .trim_start_matches("in ")
+                .trim_start_matches("Minor ")
+                .to_owned();
         } else {
             details.push(p);
         }
     }
-    details.extend(e.bullets);
+    details.extend(e.bullets.iter().map(|b| coursework_line(b)));
     if school.is_empty() {
         if !details.is_empty() {
             unsorted.push(format!("Education: {}", details.join(" | ")));
@@ -991,7 +1028,8 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
     Some(Education {
         school: tidy_caps(&school),
         degree,
-        field_of_study: field,
+        field_of_study: tidy_caps(&field),
+        minor: tidy_caps(&minor),
         gpa,
         location,
         start: if dates.start != dates.end {
@@ -1004,7 +1042,22 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
     })
 }
 
-fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Project> {
+/// A user name shown for a link ("klam101"): one word found inside one of
+/// the file's link addresses.
+fn is_link_text(token: &str, links: &[String]) -> bool {
+    let t = token.trim().to_lowercase();
+    t.len() >= 3
+        && !t.contains(char::is_whitespace)
+        && links.iter().any(|l| l.to_lowercase().contains(&t))
+}
+
+fn is_link_label(s: &str) -> bool {
+    super::clean::LINK_LABELS.contains(&s.trim().to_lowercase().as_str())
+}
+
+/// A project, and whether its header ended in a link label ("GitHub",
+/// "Demo") whose address is only in the file's links.
+fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<(Project, bool)> {
     let dates = take_dates(&mut e.header);
     let mut url = String::new();
     for line in e.header.iter_mut() {
@@ -1017,7 +1070,39 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Project> {
             line.replace_range(r, " ");
         }
     }
+    // "Sunset | GitHub | Demo" -> "Sunset", labeled.
+    let mut labeled = false;
+    if let Some(first) = e.header.first_mut() {
+        loop {
+            let trimmed = first.trim_end_matches(|c: char| {
+                c.is_whitespace() || matches!(c, '|' | '-' | '–' | '—' | ',' | '·' | '•')
+            });
+            match trimmed.rsplit_once(char::is_whitespace) {
+                // Only after a separator or a wide gap (where an icon was),
+                // so a project called "Personal Website" keeps its name.
+                Some((head, last))
+                    if is_link_label(last)
+                        && (head.ends_with(char::is_whitespace)
+                            || head
+                                .trim_end()
+                                .ends_with(['|', '-', '–', '—', '·', '•', ','])) =>
+                {
+                    labeled = true;
+                    *first = head.to_owned();
+                }
+                _ => {
+                    *first = trimmed.to_owned();
+                    break;
+                }
+            }
+        }
+    }
     let mut parts = pieces(&e.header);
+    parts.retain(|p| {
+        let label = is_link_label(p);
+        labeled |= label;
+        !label
+    });
     if parts.is_empty() {
         if !e.bullets.is_empty() {
             unsorted.push(format!("Projects: {}", e.bullets.join(" ")));
@@ -1027,9 +1112,10 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Project> {
     let name = parts.remove(0);
     let mut skills: Vec<String> = Vec::new();
     let mut role = String::new();
+    let mut summary = String::new();
     for p in parts {
         let lower = p.to_lowercase();
-        let list = lower
+        let labeled_list = lower
             .strip_prefix("technologies")
             .or_else(|| lower.strip_prefix("tech stack"))
             .or_else(|| lower.strip_prefix("tools"))
@@ -1038,12 +1124,20 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Project> {
                 p.split_once(':')
                     .map(|(_, v)| v.to_owned())
                     .unwrap_or_default()
-            })
-            .unwrap_or_else(|| p.clone());
-        if list.contains(',') || !role.is_empty() {
+            });
+        if let Some(list) = labeled_list {
             skills.extend(split_items(&list));
-        } else {
+        } else if p.contains(',') {
+            skills.extend(split_items(&p));
+        } else if role.is_empty() && has_word(&p, TITLE_WORDS) {
             role = p;
+        } else if summary.is_empty() {
+            // "ONLINE BANKING PLATFORM": the line under the name.
+            summary = tidy_caps(&p);
+        } else if role.is_empty() {
+            role = p;
+        } else {
+            skills.extend(split_items(&p));
         }
     }
     // A "Technologies: ..." bullet is the stack, not an accomplishment.
@@ -1064,15 +1158,19 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Project> {
         }
         true
     });
-    Some(Project {
-        name,
-        role,
-        url,
-        start: dates.start,
-        end: if dates.found { dates.end } else { None },
-        bullets: e.bullets,
-        skills,
-    })
+    Some((
+        Project {
+            name: tidy_caps(&name),
+            summary,
+            role,
+            url,
+            start: dates.start,
+            end: if dates.found { dates.end } else { None },
+            bullets: e.bullets,
+            skills,
+        },
+        labeled,
+    ))
 }
 
 fn split_items(s: &str) -> Vec<String> {
@@ -1084,6 +1182,70 @@ fn split_items(s: &str) -> Vec<String> {
         })
         .filter(|t| !t.is_empty() && t.chars().count() <= 50 && t.split_whitespace().count() <= 5)
         .collect()
+}
+
+/// Skill group names, longest first so "Programming Languages" wins over
+/// "Languages".
+const SKILL_CATEGORIES: &[&str] = &[
+    "programming languages",
+    "frameworks and libraries",
+    "frameworks & libraries",
+    "libraries and frameworks",
+    "tools and technologies",
+    "tools & technologies",
+    "developer tools",
+    "operating systems",
+    "soft skills",
+    "methodologies",
+    "certifications",
+    "technologies",
+    "frameworks",
+    "libraries",
+    "databases",
+    "platforms",
+    "languages",
+    "software",
+    "concepts",
+    "testing",
+    "devops",
+    "cloud",
+    "tools",
+    "other",
+];
+
+/// A skills line whose label is in its own column, without a colon
+/// ("Languages C/C++, C#, Python"): a known group name at the start, or
+/// extra leading words on the first item ("AI-Assisted Development Ollama,
+/// Claude, Cursor" -> "AI-Assisted Development").
+fn category_without_colon(line: &str) -> (String, String) {
+    if !line.contains(',') {
+        return (String::new(), line.to_owned());
+    }
+    let lower = line.to_lowercase();
+    for c in SKILL_CATEGORIES {
+        if let Some(rest) = lower.strip_prefix(c)
+            && rest.starts_with(char::is_whitespace)
+        {
+            let at = line.len() - rest.len();
+            return (line[..at].trim().to_owned(), line[at..].trim().to_owned());
+        }
+    }
+    let items: Vec<&str> = line.split(',').map(str::trim).collect();
+    let mut others: Vec<usize> = items[1..]
+        .iter()
+        .map(|i| i.split_whitespace().count())
+        .collect();
+    others.sort_unstable();
+    let median = others.get(others.len() / 2).copied().unwrap_or(1).max(1);
+    let first: Vec<&str> = items[0].split_whitespace().collect();
+    if others.len() >= 2 && first.len() >= median + 2 {
+        let cut = first.len() - median;
+        let category = first[..cut].join(" ");
+        let comma = line.find(',').unwrap_or(line.len());
+        let rest = format!("{}{}", first[cut..].join(" "), &line[comma..]);
+        return (category, rest);
+    }
+    (String::new(), line.to_owned())
 }
 
 fn skills(lines: &[&str]) -> Vec<Skill> {
@@ -1098,11 +1260,11 @@ fn skills(lines: &[&str]) -> Vec<Skill> {
             Some((label, rest))
                 if label.split_whitespace().count() <= 4 && !label.contains(',') =>
             {
-                (label.trim().to_owned(), rest)
+                (label.trim().to_owned(), rest.to_owned())
             }
-            _ => (String::new(), line.as_str()),
+            _ => category_without_colon(&line),
         };
-        for name in split_items(items) {
+        for name in split_items(&items) {
             out.push(Skill {
                 name,
                 category: category.clone(),
@@ -1114,7 +1276,7 @@ fn skills(lines: &[&str]) -> Vec<Skill> {
 
 /// Name, contact details, links and a headline from the lines above the
 /// first section.
-fn header(lines: &[&str], profile: &mut Profile, unsorted: &mut Vec<String>) {
+fn header(lines: &[&str], links: &[String], profile: &mut Profile, unsorted: &mut Vec<String>) {
     // A link wrapped onto the next line ("linkedin.com/in/jane-" + "doe").
     let mut joined: Vec<String> = Vec::new();
     for raw in lines {
@@ -1171,7 +1333,13 @@ fn header(lines: &[&str], profile: &mut Profile, unsorted: &mut Vec<String>) {
         for token in SPLIT.split(&rest).map(|t| {
             t.trim_matches(|c: char| c.is_whitespace() || matches!(c, ',' | '|' | '•' | '·'))
         }) {
-            if token.is_empty() || token.chars().all(|c| !c.is_alphanumeric()) {
+            // "portfolio", "GitHub": a link's label; the address comes from
+            // the file's links.
+            if token.is_empty()
+                || token.chars().all(|c| !c.is_alphanumeric())
+                || is_link_label(token)
+                || is_link_text(token, links)
+            {
                 continue;
             }
             if p.city.is_empty()
@@ -1242,22 +1410,148 @@ fn header(lines: &[&str], profile: &mut Profile, unsorted: &mut Vec<String>) {
     }
 }
 
-/// "QA ENGINEER" -> "QA Engineer": all-caps text in title case, keeping
-/// short words that are likely acronyms (QA, IT, LLC). Mixed case is kept.
+/// Words written in lowercase inside a title ("Bachelor of Science").
+const SMALL_WORDS: &[&str] = &[
+    "of", "in", "and", "the", "for", "at", "to", "a", "an", "with", "on", "or", "by", "&", "via",
+];
+
+/// Short everyday words, title-cased even though most words of three
+/// letters or fewer in an all-caps title are acronyms ("MAP" -> "Map").
+const SHORT_WORDS: &[&str] = &[
+    "app", "map", "web", "art", "new", "big", "bot", "car", "day", "job", "key", "lab", "law",
+    "pay", "sea", "sun", "top", "use", "way", "toy", "tax", "tea", "pet", "box", "hub", "kit",
+    "net", "pro", "tag", "cup", "gym", "bar", "bus", "fun", "end", "all", "one", "two", "six",
+    "ten", "our", "old", "red", "my", "go", "run", "air", "low", "sky", "bay", "aid", "fit",
+];
+
+/// Words kept in capitals.
+const ACRONYMS: &[&str] = &[
+    "GPA", "QA", "QE", "AI", "ML", "UI", "UX", "IT", "MVP", "AWS", "GCP", "SQL", "API", "LLC",
+    "LLP", "CEO", "CTO", "CFO", "COO", "VP", "HR", "USA", "US", "U.S.", "NASA", "IBM", "MBA",
+    "PHD", "B.S.", "B.A.", "M.S.", "M.A.", "BS", "BA", "MS", "MA", "II", "III", "IV", "R&D",
+    "SDET", "SRE", "DBA", "ERP", "CRM", "GIS", "IOS", "SAAS", "POS", "STEM", "NLP", "CS", "CE",
+    "EE", "ECE", "DEVOPS", "CI/CD", "ETL", "BI", "PM", "TA", "RA",
+];
+
+/// "QA ENGINEER" -> "QA Engineer": all-caps text in title case. Small words
+/// are lowercase except at the start, known acronyms stay in capitals, and
+/// other words of three letters or fewer stay as they are (likely acronyms).
+/// Text that already has lowercase letters is kept.
 fn tidy_caps(s: &str) -> String {
     if s.chars().any(char::is_lowercase) || s.chars().filter(|c| c.is_alphabetic()).count() <= 4 {
         return s.to_owned();
     }
     s.split(' ')
-        .map(|w| {
-            if w.chars().filter(|c| c.is_alphabetic()).count() <= 3 {
+        .enumerate()
+        .map(|(i, w)| {
+            let upper = w.to_uppercase();
+            let bare = upper.trim_matches(|c: char| matches!(c, ',' | ';' | ':' | '(' | ')'));
+            if ACRONYMS.contains(&bare) {
+                match bare {
+                    "IOS" => w.replace("IOS", "iOS"),
+                    "SAAS" => w.replace("SAAS", "SaaS"),
+                    "PHD" => w.replace("PHD", "PhD"),
+                    "DEVOPS" => w.replace("DEVOPS", "DevOps"),
+                    _ => w.to_owned(),
+                }
+            } else if i > 0 && SMALL_WORDS.contains(&w.to_lowercase().as_str()) {
+                w.to_lowercase()
+            } else if w.chars().filter(|c| c.is_alphabetic()).count() <= 3
+                && !SHORT_WORDS.contains(&w.to_lowercase().as_str())
+            {
                 w.to_owned()
             } else {
-                title_case(w)
+                // "AI-ASSISTED" -> "AI-Assisted", "FULL-STACK" -> "Full-Stack"
+                w.split('-').map(title_case).collect::<Vec<_>>().join("-")
             }
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+static MINOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:^|[,;|]\s*|\s+)(?:(?:with\s+)?an?\s+)?minors?\s*(?:in|:|-)?\s+(?P<a>[^,;|]+)|(?:^|[,;|]\s*)(?P<b>[^,;|]+?)\s+minor\b").unwrap()
+});
+
+/// Splits "Bachelor of Science in Computer Science, Minor Business
+/// Administration" into degree, field and minor.
+fn degree_line(line: &str) -> (String, String, String) {
+    let mut d = tidy_caps(line.trim());
+    let mut minor = String::new();
+    if let Some(c) = MINOR.captures(&d) {
+        minor = c
+            .name("a")
+            .or(c.name("b"))
+            .map(|m| m.as_str().trim().to_owned())
+            .unwrap_or_default();
+        let r = c.get(0).unwrap().range();
+        d.replace_range(r, "");
+    }
+    let d = d
+        .trim()
+        .trim_end_matches([',', ';', '|', '-'])
+        .trim()
+        .to_owned();
+    let lower = d.to_lowercase();
+    // "Bachelor of Science in Computer Science", "B.S. in X", "B.S., X"
+    let split = lower
+        .find(" in ")
+        .map(|i| (i, 4))
+        .or_else(|| lower.find(", ").map(|i| (i, 2)));
+    let (degree, field) = if let Some((i, n)) = split {
+        (d[..i].trim().to_owned(), d[i + n..].trim().to_owned())
+    } else if let Some(m) = DEGREE.find(&d)
+        && m.start() == 0
+        && d.len() > m.end() + 2
+        && !lower.starts_with("bachelor")
+        && !lower.starts_with("master")
+        && !lower.starts_with("associate")
+        && !lower.starts_with("doctor")
+    {
+        // "B.S. Computer Science": the regex stops before a final period.
+        let end = m.end() + usize::from(d[m.end()..].starts_with('.'));
+        (
+            d[..end].trim().to_owned(),
+            d[end..]
+                .trim_matches(|c: char| c.is_whitespace() || c == ',' || c == '.')
+                .to_owned(),
+        )
+    } else {
+        (d, String::new())
+    };
+    (degree, field, minor)
+}
+
+/// Lowercase words of a piece of text, to tell which pieces came from a line.
+fn degree_words(s: &str) -> Vec<String> {
+    s.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// "Coursework - A, B" and "Relevant Coursework: A, B" -> "Coursework: A, B".
+fn coursework_line(line: &str) -> String {
+    let lower = line.to_lowercase();
+    for label in [
+        "relevant coursework",
+        "related coursework",
+        "coursework",
+        "courses",
+    ] {
+        if let Some(rest) = lower.strip_prefix(label) {
+            let rest = &line[line.len() - rest.len()..];
+            let rest = rest.trim_start_matches(|c: char| {
+                c.is_whitespace() || matches!(c, ':' | '-' | '–' | '—')
+            });
+            if !rest.is_empty() {
+                let label = &line[..label.len()];
+                return format!("{label}: {rest}");
+            }
+        }
+    }
+    line.to_owned()
 }
 
 /// "JANE" -> "Jane"; mixed case is kept ("McDonald").
@@ -1278,7 +1572,10 @@ fn title_case(w: &str) -> String {
     }
 }
 
-pub fn parse(text: &str) -> Parsed {
+/// Parses resume text. `links` are the targets of the file's own links
+/// (`resume::extract`), used for addresses the text only labels.
+pub fn parse(text: &str, links: &[String]) -> Parsed {
+    let text = super::clean::clean(text);
     let lines: Vec<&str> = text.lines().collect();
     let mut sections: Vec<(Section, String, Vec<&str>)> =
         vec![(Section::Header, String::new(), Vec::new())];
@@ -1292,9 +1589,10 @@ pub fn parse(text: &str) -> Parsed {
     let mut parsed = Parsed::default();
     let Parsed { profile, unsorted } = &mut parsed;
     let mut coursework: Vec<String> = Vec::new();
+    let mut labeled_projects: Vec<bool> = Vec::new();
     for (section, title, body) in sections {
         match section {
-            Section::Header => header(&body, profile, unsorted),
+            Section::Header => header(&body, links, profile, unsorted),
             Section::Summary => {
                 let text = body
                     .iter()
@@ -1326,8 +1624,9 @@ pub fn parse(text: &str) -> Parsed {
             }
             Section::Projects => {
                 for e in entries(&body) {
-                    if let Some(x) = project(e, unsorted) {
+                    if let Some((x, labeled)) = project(e, unsorted) {
                         profile.projects.push(x);
+                        labeled_projects.push(labeled);
                     }
                 }
             }
@@ -1361,12 +1660,128 @@ pub fn parse(text: &str) -> Parsed {
             None => unsorted.push(line),
         }
     }
+    place_links(profile, &labeled_projects, links, unsorted);
     // Duplicate skills (case-insensitive) keep the first.
     let mut seen = std::collections::HashSet::new();
     profile
         .skills
         .retain(|s| seen.insert(s.name.to_lowercase()));
     parsed
+}
+
+/// A link without its scheme, `www.` and trailing slash, to compare links.
+fn link_key(url: &str) -> String {
+    let lower = url.trim().to_lowercase();
+    let rest = lower.split_once("://").map_or(lower.as_str(), |(_, r)| r);
+    rest.trim_start_matches("www.")
+        .trim_end_matches('/')
+        .to_owned()
+}
+
+/// Letters and digits only, to match a repository to a project name.
+fn squash(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Puts the file's own links where they belong. They come in reading order,
+/// so links before the first project link are in the header.
+///
+/// - `mailto:` and `tel:` fill the email and phone when the text had none.
+/// - LinkedIn profiles and GitHub accounts become profile links.
+/// - A link whose last path part matches a project's name is that project's.
+/// - Other header links: the first is the portfolio.
+/// - The rest go, in order, to projects whose header showed a link label
+///   ("GitHub", "Demo"); anything left over is listed as not placed.
+fn place_links(
+    profile: &mut Profile,
+    labeled_projects: &[bool],
+    links: &[String],
+    unsorted: &mut Vec<String>,
+) {
+    let mut in_header = true;
+    let mut leftover: Vec<String> = Vec::new();
+    for raw in links {
+        let lower = raw.to_lowercase();
+        if let Some(addr) = lower.strip_prefix("mailto:") {
+            let addr = addr.split('?').next().unwrap_or("");
+            if profile.personal.email.is_empty() && EMAIL.is_match(addr) {
+                profile.personal.email = raw[7..7 + addr.len()].to_owned();
+            }
+            continue;
+        }
+        if let Some(num) = lower.strip_prefix("tel:") {
+            if profile.personal.phone.is_empty() && PHONE.is_match(num) {
+                profile.personal.phone = raw[4..].to_owned();
+            }
+            continue;
+        }
+        let Ok(url) = normalize_url(raw) else {
+            continue;
+        };
+        let key = link_key(&url);
+        // Already found in the text: keep the file's exact address.
+        if let Some(l) = profile.links.iter_mut().find(|l| link_key(&l.url) == key) {
+            l.url = url;
+            continue;
+        }
+        if profile.projects.iter().any(|p| link_key(&p.url) == key) {
+            continue;
+        }
+        let path: Vec<&str> = key.split('/').skip(1).filter(|p| !p.is_empty()).collect();
+        let host = key.split('/').next().unwrap_or("");
+        let kind = link_kind(&url);
+        let account = match kind {
+            LinkKind::Linkedin => path.first() == Some(&"in") && path.len() == 2,
+            LinkKind::Github => path.len() == 1,
+            _ => false,
+        };
+        if account {
+            if !profile.links.iter().any(|l| l.kind == kind) {
+                profile.links.push(Link { kind, url });
+            }
+            continue;
+        }
+        // By name: github.com/user/sunset -> the project "Sunset".
+        let last = path.last().map_or_else(
+            || squash(host.split('.').next().unwrap_or("")),
+            |p| squash(p),
+        );
+        if let Some(p) = profile
+            .projects
+            .iter_mut()
+            .find(|p| p.url.is_empty() && !last.is_empty() && squash(&p.name) == last)
+        {
+            p.url = url;
+            in_header = false;
+            continue;
+        }
+        if kind == LinkKind::Github {
+            in_header = false;
+        }
+        if in_header && !profile.links.iter().any(|l| l.kind == LinkKind::Portfolio) {
+            profile.links.push(Link {
+                kind: LinkKind::Portfolio,
+                url,
+            });
+            continue;
+        }
+        leftover.push(url);
+    }
+    let mut leftover = leftover.into_iter();
+    for (p, labeled) in profile.projects.iter_mut().zip(labeled_projects) {
+        if *labeled && p.url.is_empty() {
+            match leftover.next() {
+                Some(url) => p.url = url,
+                None => break,
+            }
+        }
+    }
+    for url in leftover {
+        unsorted.push(format!("Link: {url}"));
+    }
 }
 
 #[cfg(test)]

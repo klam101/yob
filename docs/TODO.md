@@ -104,7 +104,15 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Rule-based resume parser (no AI) into a draft; review screen with per-section "Save this" and unplaced text
 - [x] Profile page: start card (upload or manual), tabs Personal, Experience, Education, Projects, Skills, Application answers; checklist; download uploaded resumes
 - [x] Equal-employment answers encrypted with AES-256-GCM (`PROFILE_ENCRYPTION_KEY`, added to `.env` automatically)
-- [ ] Try the parser on your real resume and add a fixture (fictional, same layout) for anything it misreads
+- [x] Try the parser on your real resume and add a fixture (fictional, same layout) for anything it misreads (`smallcaps.txt`, `links.pdf`)
+- [x] Text cleanup before parsing (`profile::clean`): ligatures, hyphen look-alikes (U+2011), icon-font characters, LaTeX small caps, words hyphenated across lines
+- [x] Links read from the file itself (PDF link annotations, DOCX hyperlinks) and placed: LinkedIn, GitHub, portfolio, project repos
+- [x] Education minor, project one-line summary, middle name and phone type; skill groups without a colon; "Class of 2026" means May
+- [x] Profile page like Jobright's: one scrolling page with section tabs, editing in a side panel, one box per bullet, errors shown under the field, completeness card
+- [x] Experience and education sorted newest first on save; overlapping jobs get a note, not an error
+- [x] Resume page (`/resume`, was Documents): resumes list with a primary one, rename and target title, fill profile from a resume, download, delete; projects live here
+- [x] `./scripts/dev.sh parse-resume <file>` to see what the parser makes of a file
+- [ ] Two-column PDF layouts (sidebar resumes): text extraction interleaves the columns
 - [ ] Optional "Improve with AI" pass over the draft with `qwen3:8b` once Ollama is set up
 - [ ] Back up `PROFILE_ENCRYPTION_KEY`: without it, saved equal-employment answers can't be read
 
@@ -119,7 +127,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Tailor a resume per job from the profile tables (rephrase only, never invent)
 - [ ] Render ATS-safe PDF (Typst) and DOCX
 - [ ] Cover letter from the same facts plus the company description
-- [ ] Documents page: base resume, tailored versions, editor
+- [ ] Resume page: tailored versions and an editor (the page and the resumes list exist)
 - [ ] Turn on the AI tools on the job detail page
 
 ### 7. Application tracker

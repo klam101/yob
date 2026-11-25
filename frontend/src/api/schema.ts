@@ -448,8 +448,49 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Uploaded resumes, newest first. */
+        /** Uploaded resumes: the primary one first, then newest first. */
         get: operations["list_resumes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resumes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Deletes a resume and its file. If it was the primary one, the newest
+         *     remaining resume becomes primary. The profile isn't changed.
+         */
+        delete: operations["delete_resume"];
+        options?: never;
+        head?: never;
+        /** Renames a resume, sets its target job title, or makes it the primary one. */
+        patch: operations["update_resume"];
+        trace?: never;
+    };
+    "/profile/resumes/{id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reads a saved resume again and returns a draft profile from it, to fill
+         *     the profile from that resume. Nothing is saved.
+         */
+        get: operations["resume_draft"];
         put?: never;
         post?: never;
         delete?: never;
@@ -542,6 +583,11 @@ export interface components {
         };
         /** @description Error body returned by every endpoint on failure. */
         ApiError: {
+            /**
+             * @description The field the message is about, as a path like `experiences.2.end`,
+             *     when the error is about one field.
+             */
+            field?: string | null;
             message: string;
         };
         AuthStatus: {
@@ -660,6 +706,8 @@ export interface components {
             gpa: string;
             /** @default  */
             location: string;
+            /** @default  */
+            minor: string;
             /** @default  */
             school: string;
             /** @default null */
@@ -929,7 +977,14 @@ export interface components {
             /** @default  */
             last_name: string;
             /** @default  */
+            middle_name: string;
+            /** @default  */
             phone: string;
+            /**
+             * @description "mobile", "home" or "work"; empty when not given.
+             * @default
+             */
+            phone_type: string;
             /** @default  */
             postal_code: string;
             /**
@@ -1040,7 +1095,9 @@ export interface components {
              *       "first_name": "",
              *       "headline": "",
              *       "last_name": "",
+             *       "middle_name": "",
              *       "phone": "",
+             *       "phone_type": "",
              *       "postal_code": "",
              *       "region": "",
              *       "street": "",
@@ -1066,6 +1123,11 @@ export interface components {
             skills: string[];
             /** @default null */
             start: string | null;
+            /**
+             * @description A one-line description ("Online banking platform").
+             * @default
+             */
+            summary: string;
             /** @default  */
             url: string;
         };
@@ -1081,10 +1143,29 @@ export interface components {
             content_type: string;
             filename: string;
             id: string;
+            /** @description The resume used by default. Exactly one when there are any. */
+            is_primary: boolean;
+            /** @description Shown in the list; starts as the file name without its extension. */
+            name: string;
             /** Format: int64 */
             size_bytes: number;
+            target_title: string;
+            /** Format: date-time */
+            updated_at: string;
             /** Format: date-time */
             uploaded_at: string;
+        };
+        /** @description Changes to a resume's details; `None` leaves a field as it is. */
+        ResumeUpdate: {
+            /** @default null */
+            name: string | null;
+            /**
+             * @description `true` makes this the primary resume (and the old one not).
+             * @default null
+             */
+            primary: boolean | null;
+            /** @default null */
+            target_title: string | null;
         };
         ResumeUpload: {
             /**
@@ -2007,6 +2088,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResumeInfo"][];
+                };
+            };
+        };
+    };
+    delete_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeUpdate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeInfo"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    resume_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeDraft"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

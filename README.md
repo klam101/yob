@@ -44,6 +44,7 @@ Optional: to add US federal jobs from USAJOBS, get a free key at https://develop
 | `dev` | Day-to-day development: db and redis in Docker; the API, worker and web app run locally in one terminal with labeled output. The web app hot-reloads; after Rust changes, Ctrl+C and run it again. Ctrl+C stops all three |
 | `stop` | Stops local API, worker and web processes left running, for example after closing the terminal during `dev` |
 | `typegen` | Regenerates `frontend/src/api/schema.ts` from the running API. Run it after any API change |
+| `parse-resume <file>` | Shows what the resume parser makes of a PDF, DOCX or text file: the cleaned text, the links found in it, the parsed profile and anything it couldn't place. `--raw` adds the text before cleanup |
 | `check` | Rust format check, clippy, frontend lint and TypeScript check. Run before committing |
 | `fmt` | Formats the Rust code |
 | `psql` | Opens a Postgres shell |

@@ -8,7 +8,7 @@ import { cn } from "cn";
 export const NAV = [
   { href: "/jobs", label: "Jobs", icon: Briefcase },
   { href: "/tracker", label: "Tracker", icon: KanbanSquare },
-  { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/resume", label: "Resume", icon: FileText },
   { href: "/profile", label: "Profile", icon: UserRound },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

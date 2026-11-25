@@ -15,6 +15,7 @@ import {
   skillsToText,
   textToSkills,
 } from "./editors";
+import { type FieldError, FieldScope } from "./fields";
 import { save } from "./save";
 
 type Key = "personal" | "educations" | "experiences" | "projects" | "skills";
@@ -63,10 +64,12 @@ export function ResumeReview({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<FieldError | null>(null);
 
   async function saveAll() {
     setSaving(true);
     setError(null);
+    setFieldError(null);
     const steps: [Key, () => ReturnType<(typeof save)[keyof typeof save]>][] = [
       ["personal", () => save.personal(personal)],
       ["personal", () => save.links(links)],
@@ -80,6 +83,15 @@ export function ResumeReview({
       const result = await run();
       if (!result.ok) {
         setError(`${label[key]}: ${result.message}`);
+        if (result.field) {
+          setFieldError({ field: result.field, message: result.message });
+          // Let the marked field render, then bring it into view.
+          requestAnimationFrame(() => {
+            const el = document.querySelector<HTMLElement>("[aria-invalid=true]");
+            el?.scrollIntoView({ block: "center", behavior: "smooth" });
+            el?.focus({ preventScroll: true });
+          });
+        }
         setSaving(false);
         return;
       }
@@ -119,7 +131,11 @@ export function ResumeReview({
           Save this
         </label>
       </div>
-      {use[k] && body}
+      {use[k] && (
+        <FieldScope path={k} error={fieldError}>
+          {body}
+        </FieldScope>
+      )}
     </section>
   );
 
@@ -141,7 +157,13 @@ export function ResumeReview({
         )}
         {section("experiences", <ExperienceEditor value={experiences} onChange={setExperiences} />)}
         {section("educations", <EducationEditor value={educations} onChange={setEducations} />)}
-        {section("projects", <ProjectEditor value={projects} onChange={setProjects} />)}
+        {section(
+          "projects",
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">Projects are kept on the Resume page, for tailored resumes.</p>
+            <ProjectEditor value={projects} onChange={setProjects} />
+          </div>,
+        )}
         {section("skills", <SkillsEditor value={skills} onChange={setSkills} />)}
       </div>
 

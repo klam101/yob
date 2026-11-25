@@ -50,6 +50,7 @@ export type Answers = Schemas["Answers"];
 export type Eeo = Schemas["Eeo"];
 export type ResumeDraft = Schemas["ResumeDraft"];
 export type ResumeInfo = Schemas["ResumeInfo"];
+export type ResumeUpdate = Schemas["ResumeUpdate"];
 export type Preferences = Schemas["Preferences"];
 export type SearchPreferences = Schemas["SearchPreferences"];
 export type CompanySize = Schemas["CompanySize"];

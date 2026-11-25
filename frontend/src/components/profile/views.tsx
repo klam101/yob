@@ -1,4 +1,4 @@
-import { ExternalLink, Mail, MapPin, Phone } from "lucide-react";
+import { ExternalLink, Globe, Link2, Mail, MapPin, Phone } from "lucide-react";
 import type { Answers, Education, Experience, Personal, ProfileLink, Project, Skill } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { formatRange } from "./fields";
@@ -27,8 +27,15 @@ function Chip({ icon: Icon, children }: { icon: React.ComponentType<{ className?
   );
 }
 
+const LINK_LABEL: Record<ProfileLink["kind"], string> = {
+  linkedin: "LinkedIn",
+  github: "GitHub",
+  portfolio: "Portfolio",
+  other: "Link",
+};
+
 export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }) {
-  const name = [p.first_name, p.last_name].filter(Boolean).join(" ");
+  const name = [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ");
   const address = [p.street, p.city, [p.region, p.postal_code].filter(Boolean).join(" "), p.country]
     .filter(Boolean)
     .join(", ");
@@ -42,10 +49,25 @@ export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }
       <div className="flex flex-wrap gap-2">
         {address && <Chip icon={MapPin}>{address}</Chip>}
         {p.email && <Chip icon={Mail}>{p.email}</Chip>}
-        {p.phone && <Chip icon={Phone}>{p.phone}</Chip>}
+        {p.phone && (
+          <Chip icon={Phone}>
+            {p.phone}
+            {p.phone_type && <span className="text-muted-foreground"> · {p.phone_type}</span>}
+          </Chip>
+        )}
         {links.map((l) => (
-          <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="max-w-full">
-            <Chip icon={ExternalLink}>{l.url.replace(/^https?:\/\/(www\.)?/, "")}</Chip>
+          <a
+            key={l.url}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="max-w-full rounded-full focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none"
+            aria-label={`${LINK_LABEL[l.kind]}: ${l.url}`}
+          >
+            <Chip icon={l.kind === "portfolio" ? Globe : l.kind === "other" ? ExternalLink : Link2}>
+              <span className="font-medium">{LINK_LABEL[l.kind]}</span>{" "}
+              <span className="text-muted-foreground">{l.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</span>
+            </Chip>
           </a>
         ))}
       </div>
@@ -75,7 +97,11 @@ export function EducationView({ items }: { items: Education[] }) {
       {items.map((e, i) => (
         <TimelineItem key={i} when={formatRange(e.start, e.end, false)}>
           <p className="font-semibold">{e.school}</p>
-          <p className="text-sm">{[e.degree, e.field_of_study].filter(Boolean).join(" in ")}</p>
+          <p className="text-sm">
+            {[[e.degree, e.field_of_study].filter(Boolean).join(" in "), e.minor && `Minor in ${e.minor}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
           <p className="text-sm text-muted-foreground">
             {[e.gpa && `GPA ${e.gpa}`, e.location].filter(Boolean).join(" · ")}
           </p>
@@ -93,9 +119,12 @@ export function ExperienceView({ items }: { items: Experience[] }) {
       {items.map((e, i) => (
         <TimelineItem key={i} when={formatRange(e.start, e.end)}>
           <p className="font-semibold">{e.company || e.title}</p>
-          <p className="text-sm">
-            {[e.company ? e.title : "", e.employment_type, e.location].filter(Boolean).join(" · ")}
-          </p>
+          {e.company && e.title && <p className="text-sm">{e.title}</p>}
+          {(e.employment_type || e.location) && (
+            <p className="text-sm text-muted-foreground">
+              {[e.employment_type, e.location].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <Bullets items={e.bullets} />
         </TimelineItem>
       ))}
@@ -118,7 +147,8 @@ export function ProjectView({ items }: { items: Project[] }) {
               p.name
             )}
           </p>
-          {p.role && <p className="text-sm">{p.role}</p>}
+          {p.summary && <p className="text-sm">{p.summary}</p>}
+          {p.role && <p className="text-sm text-muted-foreground">{p.role}</p>}
           {p.skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {p.skills.map((s) => (

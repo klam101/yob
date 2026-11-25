@@ -7,18 +7,24 @@ import {
   type ProfileLink,
   type Project,
   type ResumeDraft,
+  type ResumeUpdate,
   type Skill,
   api,
 } from "@/api/client";
 
-/** Saving a section answers with the saved (cleaned-up) value or a message. */
-type Saved<T> = { ok: true; value: T } | { ok: false; message: string };
+/**
+ * Saving answers with the saved (cleaned-up) value, or a message and, when
+ * it's about one field, that field's path (`experiences.2.end`).
+ */
+export type Saved<T> = { ok: true; value: T } | { ok: false; message: string; field?: string | null };
 
-async function done<T>(p: Promise<{ data?: T; error?: { message: string } }>): Promise<Saved<T>> {
+async function done<T>(
+  p: Promise<{ data?: T; error?: { message: string; field?: string | null } }>,
+): Promise<Saved<T>> {
   try {
     const { data, error } = await p;
     if (data !== undefined) return { ok: true, value: data };
-    return { ok: false, message: error?.message ?? "Couldn't save. Try again." };
+    return { ok: false, message: error?.message ?? "Couldn't save. Try again.", field: error?.field };
   } catch {
     return { ok: false, message: "Can't reach the API. Is the stack running?" };
   }
@@ -45,6 +51,22 @@ export const save = {
         body: { ...body, work_countries: body.work_countries.map((c) => c.trim()).filter(Boolean) },
       }),
     ),
+};
+
+export const resumes = {
+  list: () => done(api.GET("/profile/resumes")),
+  update: (id: string, body: ResumeUpdate) =>
+    done(api.PATCH("/profile/resumes/{id}", { params: { path: { id } }, body })),
+  remove: async (id: string): Promise<Saved<null>> => {
+    try {
+      const { response, error } = await api.DELETE("/profile/resumes/{id}", { params: { path: { id } } });
+      if (response.ok) return { ok: true, value: null };
+      return { ok: false, message: error?.message ?? "Couldn't delete it. Try again." };
+    } catch {
+      return { ok: false, message: "Can't reach the API. Is the stack running?" };
+    }
+  },
+  draft: (id: string) => done(api.GET("/profile/resumes/{id}/draft", { params: { path: { id } } })),
 };
 
 export async function loadProfile(): Promise<Profile | null> {

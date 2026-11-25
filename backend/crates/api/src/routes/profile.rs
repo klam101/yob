@@ -1,6 +1,7 @@
 //! The profile: read it whole, save it a section at a time, and turn an
 //! uploaded resume into a draft to review. Every route needs a session.
 
+use axum::http::StatusCode;
 use axum::{
     Json,
     body::Body,
@@ -18,7 +19,7 @@ use utoipa_axum::{
 use uuid::Uuid;
 use yob_core::profile::{
     self, Answers, Education, Experience, Link, Personal, Profile, Project, Skill, parse,
-    resume::{self, MAX_BYTES},
+    resume::{self, MAX_BYTES, ResumeRow, ResumeUpdate},
 };
 
 use super::auth::CurrentUser;
@@ -35,6 +36,8 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(put_skills))
         .routes(routes!(put_answers))
         .routes(routes!(list_resumes))
+        .routes(routes!(update_resume, delete_resume))
+        .routes(routes!(resume_draft))
         .routes(routes!(resume_file))
         // The multipart body is up to 5 MB plus form overhead.
         .routes(routes!(upload_resume).layer(DefaultBodyLimit::max(MAX_BYTES + 64 * 1024)))
@@ -238,10 +241,10 @@ async fn upload_resume(
         .ok_or_else(|| ApiError::bad_request("Upload a PDF or a Word document (.docx)."))?;
 
     // Text extraction and parsing are CPU work.
-    let (bytes, text, parsed) = tokio::task::spawn_blocking(move || {
-        let text = resume::extract_text(kind, &bytes)?;
-        let parsed = parse::parse(&text);
-        Ok::<_, profile::ProfileError>((bytes, text, parsed))
+    let (bytes, extracted, parsed) = tokio::task::spawn_blocking(move || {
+        let extracted = resume::extract(kind, &bytes)?;
+        let parsed = parse::parse(&extracted.text, &extracted.links);
+        Ok::<_, profile::ProfileError>((bytes, extracted, parsed))
     })
     .await
     .map_err(|_| ApiError::internal("Reading the resume failed"))??;
@@ -253,7 +256,7 @@ async fn upload_resume(
         &filename,
         kind,
         bytes,
-        &text,
+        &extracted,
     )
     .await
     .map_err(|e| {
@@ -278,13 +281,39 @@ async fn upload_resume(
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ResumeInfo {
     pub id: String,
+    /// Shown in the list; starts as the file name without its extension.
+    pub name: String,
     pub filename: String,
     pub content_type: String,
     pub size_bytes: i64,
+    pub target_title: String,
+    /// The resume used by default. Exactly one when there are any.
+    pub is_primary: bool,
     pub uploaded_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
-/// Uploaded resumes, newest first.
+impl From<ResumeRow> for ResumeInfo {
+    fn from(r: ResumeRow) -> Self {
+        Self {
+            id: r.id.to_string(),
+            name: r.name,
+            filename: r.filename,
+            content_type: r.content_type,
+            size_bytes: r.size_bytes,
+            target_title: r.target_title,
+            is_primary: r.is_primary,
+            uploaded_at: r.uploaded_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+fn resume_id(id: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(id).map_err(|_| ApiError::not_found("No such resume"))
+}
+
+/// Uploaded resumes: the primary one first, then newest first.
 #[utoipa::path(
     get,
     path = "/profile/resumes",
@@ -296,17 +325,102 @@ async fn list_resumes(
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<Vec<ResumeInfo>>, ApiError> {
     let rows = resume::list(&state.db, user.id).await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|r| ResumeInfo {
-                id: r.id.to_string(),
-                filename: r.filename,
-                content_type: r.content_type,
-                size_bytes: r.size_bytes,
-                uploaded_at: r.uploaded_at,
-            })
-            .collect(),
-    ))
+    Ok(Json(rows.into_iter().map(ResumeInfo::from).collect()))
+}
+
+/// Renames a resume, sets its target job title, or makes it the primary one.
+#[utoipa::path(
+    patch,
+    path = "/profile/resumes/{id}",
+    tag = "profile",
+    params(("id" = String, Path)),
+    request_body = ResumeUpdate,
+    responses(
+        (status = OK, body = ResumeInfo),
+        (status = BAD_REQUEST, body = ApiError),
+        (status = NOT_FOUND, body = ApiError),
+    )
+)]
+async fn update_resume(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(change): Json<ResumeUpdate>,
+) -> Result<Json<ResumeInfo>, ApiError> {
+    let row = resume::update(&state.db, user.id, resume_id(&id)?, &change)
+        .await?
+        .ok_or_else(|| ApiError::not_found("No such resume"))?;
+    Ok(Json(row.into()))
+}
+
+/// Deletes a resume and its file. If it was the primary one, the newest
+/// remaining resume becomes primary. The profile isn't changed.
+#[utoipa::path(
+    delete,
+    path = "/profile/resumes/{id}",
+    tag = "profile",
+    params(("id" = String, Path)),
+    responses((status = NO_CONTENT), (status = NOT_FOUND, body = ApiError))
+)]
+async fn delete_resume(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = resume::delete(&state.db, &state.files, user.id, resume_id(&id)?)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "deleting resume");
+            ApiError::internal("Couldn't delete the resume")
+        })?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("No such resume"))
+    }
+}
+
+/// Reads a saved resume again and returns a draft profile from it, to fill
+/// the profile from that resume. Nothing is saved.
+#[utoipa::path(
+    get,
+    path = "/profile/resumes/{id}/draft",
+    tag = "profile",
+    params(("id" = String, Path)),
+    responses((status = OK, body = ResumeDraft), (status = NOT_FOUND, body = ApiError))
+)]
+async fn resume_draft(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> Result<Json<ResumeDraft>, ApiError> {
+    let id = resume_id(&id)?;
+    let (filename, stored) = resume::extracted(&state.db, user.id, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("No such resume"))?;
+    // Read the original file again when it's there, so resumes uploaded
+    // before an extraction fix get it too; otherwise use the stored text.
+    let bytes = match resume::file(&state.db, &state.files, user.id, id).await {
+        Ok(found) => found.map(|(_, bytes)| bytes),
+        Err(e) => {
+            tracing::warn!(error = %e, "reading resume file, using its stored text");
+            None
+        }
+    };
+    let parsed = tokio::task::spawn_blocking(move || {
+        let extracted = bytes
+            .and_then(|b| resume::detect(&b).and_then(|k| resume::extract(k, &b).ok()))
+            .unwrap_or(stored);
+        parse::parse(&extracted.text, &extracted.links)
+    })
+    .await
+    .map_err(|_| ApiError::internal("Reading the resume failed"))?;
+    Ok(Json(ResumeDraft {
+        resume_id: id.to_string(),
+        filename,
+        profile: parsed.profile,
+        unsorted: parsed.unsorted,
+    }))
 }
 
 /// Downloads an uploaded resume.
@@ -323,7 +437,7 @@ async fn resume_file(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     let not_found = || ApiError::not_found("No such resume");
-    let id = Uuid::parse_str(&id).map_err(|_| not_found())?;
+    let id = resume_id(&id)?;
     let (row, bytes) = resume::file(&state.db, &state.files, user.id, id)
         .await
         .map_err(|e| {
