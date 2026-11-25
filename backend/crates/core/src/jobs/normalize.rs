@@ -217,9 +217,9 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
 }
 
 /// Version of the rules in this file. Bump it whenever a rule changes how
-/// seniority, scope or a text-parsed salary come out; the worker then
+/// seniority, scope, a text-parsed salary or the restrictions come out; the worker then
 /// re-derives stored jobs (`ingest::renormalize`) without refetching them.
-pub const NORMALIZE_VERSION: i32 = 6;
+pub const NORMALIZE_VERSION: i32 = 8;
 
 /// Where a single location string points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -718,6 +718,83 @@ pub fn salary_or_text(structured: Option<Salary>, text: &str) -> (Option<Salary>
     }
 }
 
+/// Work-authorization limits a posting states outright. Only negative,
+/// explicit wording counts ("unable to sponsor", "must be a U.S. citizen",
+/// "active Secret clearance required"); a job that says nothing gets neither
+/// flag, so the feed never hides a job on a guess.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Restrictions {
+    /// The employer won't sponsor a work visa.
+    pub no_sponsorship: bool,
+    /// Open only to U.S. citizens (or U.S. persons, or holders of a security
+    /// clearance, which only citizens can get).
+    pub citizens_only: bool,
+}
+
+static NO_SPONSORSHIP: LazyLock<Regex> = LazyLock::new(|| {
+    // Spaces are written \s+ because the pattern below is in (?x) mode.
+    let not = r"(?:not|unable\s+to|cannot|can't|can\s+not|won't|will\s+not|do\s+not|does\s+not|(?:are|is)\s+not\s+able\s+to|not\s+able\s+to)";
+    Regex::new(&format!(
+        r"(?ix)
+        \b{not}\s+(?:currently\s+|presently\s+|at\s+this\s+time\s+)?(?:be\s+)?(?:able\s+to\s+)?
+            (?:sponsor|provide\s+(?:[\w-]+\s+){{0,2}}sponsorship|offer\s+(?:[\w-]+\s+){{0,2}}sponsorship|support\s+(?:[\w-]+\s+){{0,2}}sponsorship)
+        | \bno\s+(?:visa\s+|immigration\s+|employment\s+|h-?1b\s+)?sponsorship\b
+        | \bsponsorship\s+(?:is\s+|will\s+)?(?:not|n't)\s+(?:be\s+)?(?:available|provided|offered|possible|considered)
+        | \bnot\s+(?:be\s+)?eligible\s+for\s+(?:[\w-]+\s+){{0,2}}sponsorship
+        | \bwithout\s+(?:the\s+need\s+for\s+|requiring\s+|needing\s+|need\s+of\s+)?(?:current\s+or\s+future\s+|future\s+|any\s+)?(?:[\w-]+\s+)?sponsorship
+        | \b(?:current\s+or\s+future\s+)?sponsorship\s+(?:[\w-]+\s+){{0,3}}(?:is\s+)?not\s+(?:available|an\s+option|offered)
+        | \b(?:must|does|do|will|should)\s+not\s+(?:now\s+or\s+in\s+the\s+future\s+)?require\s+(?:[\w-]+\s+){{0,3}}sponsorship
+        "
+    ))
+    .unwrap()
+});
+
+static CITIZENS_ONLY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?ix)
+        \b(?:must|required\s+to|need\s+to|requires?\s+(?:candidates\s+)?to)\s+(?:be\s+)?(?:a\s+)?(?:u\.?\s?s\.?|united\s+states)\s+citizen
+        | \b(?:u\.?\s?s\.?|united\s+states)\s+citizenship\s+(?:is\s+)?(?:required|mandatory)
+        | \brequires?\s+(?:u\.?\s?s\.?|united\s+states)\s+citizenship
+        | \bonly\s+(?:open\s+to\s+)?(?:u\.?\s?s\.?|united\s+states)\s+citizens
+        | \b(?:active|current)\s+(?:\w+\s+){0,2}(?:secret|ts/sci|top\s+secret|security)\s+clearance
+        | \b(?:secret|ts/sci|top\s+secret|security)\s+clearance\s+(?:is\s+)?required
+        | \b(?:must|able\s+to|ability\s+to)\s+(?:be\s+able\s+to\s+)?(?:obtain|hold|maintain|possess)\s+(?:[\w/-]+\s+){0,5}?clearance
+        ",
+    )
+    .unwrap()
+});
+
+/// Phrases that mention sponsorship without being about a work visa; they're
+/// removed before looking for "without sponsorship": "with or without
+/// sponsorship" says nothing either way, and export-control boilerplate
+/// ("...without sponsorship for an export license") is about export licenses.
+static NOT_VISA_SPONSORSHIP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\bwith\s+or\s+without\s+(?:\w+\s+)?sponsorship|\bsponsorship\s+for\s+an?\s+(?:\w+\s+)?(?:export|deemed\s+export)\s+licen[cs]e",
+    )
+    .unwrap()
+});
+
+/// Citizenship named as one of several options ("U.S. citizens or
+/// currently authorized to work", "U.S. Citizenship, Lawful Permanent
+/// Residency, or Refugee status") isn't a citizens-only rule; removed before
+/// looking for one.
+static CITIZEN_OR_OTHER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)citizen(?:s|ship)?\s*(?:,|/|\bor\b|\band/or\b)[^.\n]{0,80}?(?:permanent\s+residen|authorized|lawful|green\s+card|refugee|asylee|u\.?\s?s\.?\s+national)",
+    )
+    .unwrap()
+});
+
+pub fn restrictions(text: &str) -> Restrictions {
+    let sponsorship = NOT_VISA_SPONSORSHIP.replace_all(text, "");
+    let citizenship = CITIZEN_OR_OTHER.replace_all(text, "");
+    Restrictions {
+        no_sponsorship: NO_SPONSORSHIP.is_match(&sponsorship),
+        citizens_only: CITIZENS_ONLY.is_match(&citizenship),
+    }
+}
+
 /// Stable fingerprint of a posting's content. A new job id with the same hash
 /// as a closed job at the same company is a repost.
 pub fn content_hash(title: &str, locations: &[String], text: &str) -> String {
@@ -925,5 +1002,73 @@ mod tests {
             content_hash("Software Engineer", &locs, "a"),
             content_hash("Data Engineer", &locs, "a")
         );
+    }
+
+    #[test]
+    fn work_authorization_restrictions() {
+        let none = |t: &str| restrictions(t) == Restrictions::default();
+        let no_sponsor = |t: &str| restrictions(t).no_sponsorship;
+        let citizens = |t: &str| restrictions(t).citizens_only;
+
+        assert!(no_sponsor("We are unable to sponsor visas for this role."));
+        assert!(no_sponsor("The company will not provide visa sponsorship."));
+        assert!(no_sponsor("We do not currently offer H-1B sponsorship."));
+        assert!(no_sponsor("No visa sponsorship is available."));
+        assert!(no_sponsor(
+            "Sponsorship is not available for this position."
+        ));
+        assert!(no_sponsor(
+            "Must be authorized to work in the US without sponsorship."
+        ));
+        assert!(no_sponsor(
+            "Candidates must be able to work without the need for current or future visa sponsorship."
+        ));
+        assert!(no_sponsor(
+            "Applicants must not now or in the future require employment visa sponsorship."
+        ));
+        assert!(no_sponsor(
+            "This role is not eligible for visa sponsorship."
+        ));
+
+        assert!(none(
+            "We sponsor visas and welcome international applicants."
+        ));
+        assert!(none(
+            "Visa sponsorship is available for exceptional candidates."
+        ));
+        assert!(none("Will you now or in the future require sponsorship?"));
+        assert!(none("We hire with or without visa sponsorship needs."));
+        assert!(none(
+            "Candidates must be able to access technology controlled under U.S. export laws without sponsorship for an export license."
+        ));
+        assert!(no_sponsor(
+            "We will not sponsor visas. Access to export-controlled technology may require sponsorship for an export license."
+        ));
+        assert!(none("Tell us whether or not you require sponsorship."));
+
+        assert!(citizens("Applicants must be a U.S. citizen."));
+        assert!(citizens("US citizenship is required."));
+        assert!(citizens("Active Secret clearance required."));
+        assert!(citizens(
+            "Must be able to obtain and maintain a Top Secret clearance."
+        ));
+        assert!(citizens("Ability to obtain a security clearance."));
+        assert!(citizens("This position requires U.S. citizenship."));
+        assert!(!citizens(
+            "Open to all candidates authorized to work in the US."
+        ));
+        assert!(!citizens("Help customers obtain the right plan."));
+        assert!(!citizens(
+            "Applicants must be U.S. citizens or currently authorized to work in the United States."
+        ));
+        assert!(!citizens(
+            "U.S. Citizenship, Lawful Permanent Residency, or Refugee status is required."
+        ));
+        assert!(!citizens(
+            "Employment requires verifying U.S. Person status (citizen, permanent resident or asylee)."
+        ));
+        assert!(citizens(
+            "U.S. Citizenship required. Ability to obtain a Secret clearance."
+        ));
     }
 }

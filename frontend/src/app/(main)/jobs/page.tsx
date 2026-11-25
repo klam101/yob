@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { api } from "@/api/client";
+import { serverApi } from "@/api/server";
 import { FeedProvider, PendingArea } from "@/components/filters/feed-context";
 import { FilterChips } from "@/components/filters/filter-chips";
 import { ResultsHeader } from "@/components/filters/results-header";
@@ -7,7 +9,7 @@ import { SearchBar } from "@/components/filters/search-bar";
 import { ApiError, EmptyResults, Pagination } from "@/components/jobs/feed-states";
 import { JobRow, JobRowSkeleton } from "@/components/jobs/job-row";
 import { Skeleton } from "@/components/ui/skeleton";
-import { readQuery, toApiQuery } from "@/lib/filters";
+import { type Query, fromPreferences, isBare, readQuery, toApiQuery } from "@/lib/filters";
 
 export const metadata = { title: "Jobs" };
 
@@ -29,7 +31,16 @@ export default function JobsPage(props: PageProps<"/jobs">) {
 }
 
 async function Feed({ searchParams }: Pick<PageProps<"/jobs">, "searchParams">) {
-  const query = readQuery(await searchParams);
+  const url = readQuery(await searchParams);
+
+  // The questionnaire answers are the default filters: used when the URL
+  // has no query at all. Before the questionnaire, send the user there.
+  const personal = await serverApi();
+  const prefs = await personal.GET("/preferences").catch(() => null);
+  if (prefs?.response.status === 401) redirect("/login?next=/jobs");
+  if (prefs?.data?.onboarding === "not_started") redirect("/onboarding");
+  const defaults: Query = prefs?.data ? fromPreferences(prefs.data.preferences) : {};
+  const query = isBare(url) ? defaults : url;
 
   let result;
   try {
@@ -41,7 +52,7 @@ async function Feed({ searchParams }: Pick<PageProps<"/jobs">, "searchParams">) 
   if (!data) return <ApiError message={error?.message ?? "Unexpected response from the API."} />;
 
   return (
-    <FeedProvider query={query}>
+    <FeedProvider query={query} defaults={defaults}>
       <div className="space-y-4">
         <SearchBar key={`${query.q ?? ""}|${query.location ?? ""}`} />
         <FilterChips facets={data.facets} />

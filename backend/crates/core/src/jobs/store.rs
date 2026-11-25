@@ -8,6 +8,7 @@ use sqlx::{AssertSqlSafe, PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 use super::model::{EmploymentType, Platform, Seniority, Source, Workplace};
+use super::search::{self, Place};
 
 /// "Possibly stale": open more than 60 days (by the earlier of the company's
 /// posted date and when we first saw it) or reposted more than twice.
@@ -17,7 +18,11 @@ const STALE_SQL: &str =
 #[derive(Debug, Default, Clone)]
 pub struct JobFilter {
     pub q: Option<String>,
-    pub location: Option<String>,
+    /// Any of these titles; see [`search::title_words`].
+    pub titles: Vec<String>,
+    /// Any of these places. Remote jobs pass too when `workplace` includes
+    /// remote, so "Austin, TX" plus Remote means remote or in Austin.
+    pub locations: Vec<Place>,
     pub workplace: Vec<Workplace>,
     pub employment_type: Vec<EmploymentType>,
     pub seniority: Vec<Seniority>,
@@ -30,7 +35,17 @@ pub struct JobFilter {
     pub posted_after: Option<DateTime<Utc>>,
     /// Minimum yearly salary.
     pub salary_min: Option<i32>,
+    /// With `salary_min`, keep jobs that don't list a salary.
+    pub include_unlisted_salary: bool,
     pub hide_stale: bool,
+    /// Deal-breakers: titles containing any of these words or phrases.
+    pub exclude_title: Vec<String>,
+    /// Deal-breakers: lowercased company names.
+    pub exclude_company: Vec<String>,
+    /// Hide jobs that say they won't sponsor a visa.
+    pub hide_no_sponsorship: bool,
+    /// Hide jobs open only to U.S. citizens or clearance holders.
+    pub hide_citizens_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -62,6 +77,8 @@ pub struct JobRow {
     pub repost_count: i32,
     pub possibly_stale: bool,
     pub apply_url: String,
+    pub no_sponsorship: bool,
+    pub citizens_only: bool,
     pub company_name: String,
     pub company_domain: Option<String>,
     pub company_careers_url: String,
@@ -86,7 +103,7 @@ pub struct Count {
 const SELECT_JOB: &str = "SELECT j.id, j.title, j.department, j.locations, j.workplace,
        j.employment_type, j.seniority, j.salary_min, j.salary_max, j.salary_currency,
        j.salary_period, j.posted_at, j.first_seen_at, j.last_seen_at, j.closed_at,
-       j.repost_count, j.apply_url, c.name AS company_name, c.domain AS company_domain,
+       j.repost_count, j.apply_url, j.no_sponsorship, j.citizens_only, c.name AS company_name, c.domain AS company_domain,
        c.careers_url AS company_careers_url, COALESCE(j.feed, c.platform) AS source";
 
 fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
@@ -104,10 +121,15 @@ fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
             .push_bind(like)
             .push(")");
     }
-    if let Some(loc) = &f.location {
-        qb.push(" AND EXISTS (SELECT 1 FROM unnest(j.locations) AS l WHERE l ILIKE ")
-            .push_bind(format!("%{}%", escape_like(loc)))
-            .push(")");
+    if !f.titles.is_empty() {
+        push_titles(qb, &f.titles);
+    }
+    if !f.exclude_title.is_empty() {
+        qb.push(" AND j.title !~* ")
+            .push_bind(search::whole_word_pattern(&f.exclude_title));
+    }
+    if !f.locations.is_empty() {
+        push_locations(qb, &f.locations, f.workplace.contains(&Workplace::Remote));
     }
     if !f.workplace.is_empty() {
         qb.push(" AND j.workplace = ANY(")
@@ -139,15 +161,93 @@ fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
             .push_bind(f.company.clone())
             .push(")");
     }
+    if !f.exclude_company.is_empty() {
+        qb.push(" AND lower(c.name) <> ALL(")
+            .push_bind(f.exclude_company.clone())
+            .push(")");
+    }
+    if f.hide_no_sponsorship {
+        qb.push(" AND NOT j.no_sponsorship");
+    }
+    if f.hide_citizens_only {
+        qb.push(" AND NOT j.citizens_only");
+    }
     if let Some(after) = f.posted_after {
         qb.push(" AND j.posted_at >= ").push_bind(after);
     }
     if let Some(min) = f.salary_min {
-        qb.push(" AND j.salary_annual_max >= ").push_bind(min);
+        qb.push(" AND (j.salary_annual_max >= ").push_bind(min);
+        if f.include_unlisted_salary {
+            qb.push(" OR j.salary_annual_max IS NULL");
+        }
+        qb.push(")");
     }
     if f.hide_stale {
         qb.push(" AND NOT ").push(STALE_SQL);
     }
+}
+
+/// Any of the titles: each title's words must all appear in the job title.
+fn push_titles(qb: &mut QueryBuilder<Postgres>, titles: &[String]) {
+    let titles: Vec<Vec<String>> = titles
+        .iter()
+        .map(|t| search::title_words(t))
+        .filter(|w| !w.is_empty())
+        .take(20)
+        .collect();
+    if titles.is_empty() {
+        return;
+    }
+    qb.push(" AND (");
+    for (i, words) in titles.iter().enumerate() {
+        qb.push(if i == 0 { "(" } else { " OR (" });
+        for (k, word) in words.iter().enumerate() {
+            if k > 0 {
+                qb.push(" AND ");
+            }
+            qb.push("j.title ~* ")
+                .push_bind(search::whole_word_pattern(std::slice::from_ref(word)));
+        }
+        qb.push(")");
+    }
+    qb.push(")");
+}
+
+/// Any of the places, or any remote job when `remote_ok`.
+fn push_locations(qb: &mut QueryBuilder<Postgres>, places: &[Place], remote_ok: bool) {
+    qb.push(" AND (false");
+    if remote_ok {
+        qb.push(" OR j.workplace = 'remote'");
+    }
+    for place in places {
+        match place {
+            Place::Remote => {
+                qb.push(" OR j.workplace = 'remote'");
+            }
+            Place::State(state) => {
+                qb.push(" OR EXISTS (SELECT 1 FROM unnest(j.locations) AS l WHERE l ILIKE ")
+                    .push_bind(format!("%{}%", escape_like(state.name)))
+                    .push(" OR l ~ ")
+                    .push_bind(state.code_pattern())
+                    .push(")");
+            }
+            Place::Text { text, state } => {
+                qb.push(" OR EXISTS (SELECT 1 FROM unnest(j.locations) AS l WHERE l ILIKE ")
+                    .push_bind(format!("%{}%", escape_like(text)));
+                // "Portland, OR" shouldn't match "Portland, ME"; a location
+                // that names no state code ("Austin", "Austin, Texas") passes.
+                if let Some(state) = state {
+                    qb.push(" AND (l ILIKE ")
+                        .push_bind(format!("%{}%", escape_like(state.name)))
+                        .push(" OR l ~ ")
+                        .push_bind(state.code_pattern())
+                        .push(r" OR l !~ ',\s*[A-Z]{2}([^A-Za-z]|$)')");
+                }
+                qb.push(")");
+            }
+        }
+    }
+    qb.push(")");
 }
 
 /// Enum values as the strings stored in Postgres, for `= ANY($n)`.

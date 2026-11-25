@@ -26,7 +26,9 @@ export function NavLinks({ pathname }: { pathname: string }) {
   return (
     <nav aria-label="Main" className="flex gap-0.5 sm:gap-1 md:flex-col md:gap-1.5">
       {NAV.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+        // Job preferences are part of the profile.
+        const active =
+          pathname === href || pathname.startsWith(`${href}/`) || (href === "/profile" && pathname === "/preferences");
         return (
           <Link
             key={href}

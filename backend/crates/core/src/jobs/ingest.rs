@@ -188,6 +188,7 @@ async fn check_company(
 pub(crate) fn job_json(job: &NormalizedJob) -> serde_json::Value {
     let salary = job.salary.as_ref();
     let in_scope = normalize::us_scope(&job.locations);
+    let restrictions = normalize::restrictions(&job.description_text);
     serde_json::json!({
         "source_job_id": job.source_job_id,
         "title": job.title,
@@ -207,6 +208,8 @@ pub(crate) fn job_json(job: &NormalizedJob) -> serde_json::Value {
         "description_text": in_scope.then_some(&job.description_text),
         "content_hash": job.content_hash,
         "in_scope": in_scope,
+        "no_sponsorship": in_scope && restrictions.no_sponsorship,
+        "citizens_only": in_scope && restrictions.citizens_only,
     })
 }
 
@@ -227,12 +230,12 @@ async fn upsert_jobs(
              company_id, source_job_id, title, department, locations, workplace,
              employment_type, seniority, salary_min, salary_max, salary_currency,
              salary_period, salary_source, posted_at, apply_url, description_html,
-             description_text, content_hash, in_scope, normalize_version, repost_count
+             description_text, content_hash, in_scope, no_sponsorship, citizens_only, normalize_version, repost_count
          )
          SELECT $1, x.source_job_id, x.title, x.department, x.locations, x.workplace,
                 x.employment_type, x.seniority, x.salary_min, x.salary_max, x.salary_currency,
                 x.salary_period, x.salary_source, x.posted_at, x.apply_url, x.description_html,
-                x.description_text, x.content_hash, x.in_scope, $3,
+                x.description_text, x.content_hash, x.in_scope, x.no_sponsorship, x.citizens_only, $3,
                 COALESCE((SELECT max(p.repost_count) + 1 FROM jobs p
                           WHERE p.company_id = $1 AND p.content_hash = x.content_hash
                             AND p.closed_at IS NOT NULL), 0)
@@ -242,7 +245,7 @@ async fn upsert_jobs(
              salary_max integer, salary_currency text, salary_period text,
              salary_source text, posted_at timestamptz, apply_url text,
              description_html text, description_text text, content_hash text,
-             in_scope boolean
+             in_scope boolean, no_sponsorship boolean, citizens_only boolean
          )
          ON CONFLICT (company_id, source_job_id) DO UPDATE SET
              title = EXCLUDED.title,
@@ -261,6 +264,8 @@ async fn upsert_jobs(
              description_text = EXCLUDED.description_text,
              content_hash = EXCLUDED.content_hash,
              in_scope = EXCLUDED.in_scope,
+             no_sponsorship = EXCLUDED.no_sponsorship,
+             citizens_only = EXCLUDED.citizens_only,
              normalize_version = EXCLUDED.normalize_version,
              last_seen_at = now(),
              missed_checks = 0,
@@ -473,7 +478,8 @@ struct StoredJob {
 }
 
 /// Re-derives fields from stored jobs after the rules in `normalize.rs`
-/// change (see [`normalize::NORMALIZE_VERSION`]): seniority, US scope, and
+/// change (see [`normalize::NORMALIZE_VERSION`]): seniority, US scope,
+/// sponsorship and citizenship limits (while the description is stored), and
 /// salaries that were parsed from text. Structured salaries are left alone.
 /// Returns how many jobs were updated.
 pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
@@ -495,6 +501,7 @@ pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
             .map(|r| {
                 let text = r.description_text.as_deref().unwrap_or("");
                 let in_scope = normalize::us_scope(&r.locations);
+                let restrictions = normalize::restrictions(text);
                 // Re-parse salaries that came from text, or jobs with none
                 // yet, as long as the text is still stored.
                 let resalary = r.salary_source.as_deref() != Some("structured")
@@ -504,6 +511,9 @@ pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
                     "id": r.id,
                     "seniority": normalize::infer_seniority(&r.title).as_str(),
                     "in_scope": in_scope,
+                    "rescan": r.description_text.is_some(),
+                    "no_sponsorship": restrictions.no_sponsorship,
+                    "citizens_only": restrictions.citizens_only,
                     "resalary": resalary,
                     "salary_min": salary.as_ref().map(|s| s.min),
                     "salary_max": salary.as_ref().map(|s| s.max),
@@ -519,6 +529,8 @@ pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
                  seniority = x.seniority,
                  in_scope = x.in_scope,
                  normalize_version = $2,
+                 no_sponsorship = CASE WHEN x.rescan THEN x.no_sponsorship ELSE j.no_sponsorship END,
+                 citizens_only = CASE WHEN x.rescan THEN x.citizens_only ELSE j.citizens_only END,
                  salary_min = CASE WHEN x.resalary THEN x.salary_min ELSE j.salary_min END,
                  salary_max = CASE WHEN x.resalary THEN x.salary_max ELSE j.salary_max END,
                  salary_currency = CASE WHEN x.resalary THEN x.salary_currency ELSE j.salary_currency END,
@@ -527,7 +539,8 @@ pub async fn renormalize(pool: &PgPool) -> sqlx::Result<u64> {
                  description_html = CASE WHEN x.in_scope THEN j.description_html END,
                  description_text = CASE WHEN x.in_scope THEN j.description_text END
              FROM jsonb_to_recordset($1::jsonb) AS x(
-                 id uuid, seniority text, in_scope boolean, resalary boolean,
+                 id uuid, seniority text, in_scope boolean, rescan boolean,
+                 no_sponsorship boolean, citizens_only boolean, resalary boolean,
                  salary_min integer, salary_max integer, salary_currency text,
                  salary_period text, salary_source text
              )

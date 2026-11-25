@@ -11,7 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 use yob_core::jobs::{
-    EmploymentType, SalaryPeriod, Seniority, Source, Workplace,
+    EmploymentType, SalaryPeriod, Seniority, Source, Workplace, search,
     store::{self, JobFilter, JobRow, JobSort},
 };
 
@@ -126,6 +126,10 @@ pub struct JobSummary {
     pub repost_count: u32,
     /// Open more than 60 days or reposted more than twice.
     pub possibly_stale: bool,
+    /// The posting says it won't sponsor a work visa.
+    pub no_sponsorship: bool,
+    /// The posting is open only to U.S. citizens or security-clearance holders.
+    pub citizens_only: bool,
     /// The employer's hiring platform, or the job board when no employer
     /// copy is tracked.
     pub source: Source,
@@ -219,7 +223,12 @@ pub struct JobsPage {
 pub struct JobsQuery {
     /// Matches title, department and company.
     pub q: Option<String>,
-    /// Matches any of the job's locations, e.g. "New York".
+    /// Comma-separated job titles; a job matches when its title has every
+    /// word of any one of them, e.g. `software engineer,data engineer`.
+    pub title: Option<String>,
+    /// Semicolon-separated places, e.g. `Austin, TX; Texas; Remote`. A state
+    /// matches by name or code. When `workplace` includes remote, remote
+    /// jobs match too.
     pub location: Option<String>,
     /// Comma-separated: onsite, hybrid, remote.
     pub workplace: Option<String>,
@@ -235,8 +244,20 @@ pub struct JobsQuery {
     pub source: Option<String>,
     #[param(inline)]
     pub posted_within: Option<PostedWithin>,
-    /// Minimum yearly salary; jobs without a listed salary are excluded.
+    /// Minimum yearly salary; jobs without a listed salary are excluded
+    /// unless `include_unlisted_salary` is set.
     pub salary_min: Option<u32>,
+    /// With `salary_min`, keep jobs that don't list a salary.
+    pub include_unlisted_salary: Option<bool>,
+    /// Comma-separated words or phrases; jobs whose title contains any of
+    /// them as whole words are hidden, e.g. `manager,sales`.
+    pub exclude_title: Option<String>,
+    /// Comma-separated company names to hide.
+    pub exclude_company: Option<String>,
+    /// Hide jobs that say they won't sponsor a work visa.
+    pub hide_no_sponsorship: Option<bool>,
+    /// Hide jobs open only to U.S. citizens or security-clearance holders.
+    pub hide_citizens_only: Option<bool>,
     /// Hide jobs flagged as possibly stale.
     pub hide_stale: Option<bool>,
     #[param(inline)]
@@ -446,6 +467,8 @@ fn summary(r: JobRow) -> JobSummary {
         closed_at: r.closed_at,
         repost_count: r.repost_count.max(0) as u32,
         possibly_stale: r.possibly_stale,
+        no_sponsorship: r.no_sponsorship,
+        citizens_only: r.citizens_only,
         source: Source::parse(&r.source).unwrap_or(Source::Greenhouse),
         apply_url: r.apply_url,
         fit: None,
@@ -455,7 +478,8 @@ fn summary(r: JobRow) -> JobSummary {
 fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
     Ok(JobFilter {
         q: trimmed(&q.q),
-        location: trimmed(&q.location),
+        titles: split_trimmed(&q.title),
+        locations: search::places(q.location.as_deref().unwrap_or("")),
         workplace: parse_list(&q.workplace, "workplace", Workplace::parse)?,
         employment_type: parse_list(&q.employment_type, "employment_type", EmploymentType::parse)?,
         seniority: parse_list(&q.seniority, "seniority", Seniority::parse)?,
@@ -464,7 +488,12 @@ fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
         source: parse_list(&q.source, "source", Source::parse)?,
         posted_after: q.posted_within.map(|w| Utc::now() - w.duration()),
         salary_min: q.salary_min.map(|v| v.min(i32::MAX as u32) as i32),
+        include_unlisted_salary: q.include_unlisted_salary.unwrap_or(false),
         hide_stale: q.hide_stale.unwrap_or(false),
+        exclude_title: split_trimmed(&q.exclude_title),
+        exclude_company: split_lower(&q.exclude_company),
+        hide_no_sponsorship: q.hide_no_sponsorship.unwrap_or(false),
+        hide_citizens_only: q.hide_citizens_only.unwrap_or(false),
     })
 }
 
@@ -473,6 +502,18 @@ fn trimmed(v: &Option<String>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
+}
+
+/// A comma-separated list, trimmed, at most 30 entries.
+fn split_trimmed(v: &Option<String>) -> Vec<String> {
+    v.as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .take(30)
+        .map(str::to_owned)
+        .collect()
 }
 
 fn split_lower(v: &Option<String>) -> Vec<String> {

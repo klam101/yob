@@ -258,6 +258,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The saved preferences and whether the questionnaire was done, skipped or
+         *     never started.
+         */
+        get: operations["get_preferences"];
+        /**
+         * Saves every answer and marks the questionnaire done. Work authorization
+         *     is saved with the application answers, which autofill also uses.
+         */
+        put: operations["put_preferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/preferences/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Skip for now": stops the feed from sending the user to the
+         *     questionnaire. Anything saved before is kept.
+         */
+        post: operations["skip_preferences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profile": {
         parameters: {
             query?: never;
@@ -541,6 +585,11 @@ export interface components {
             industries: string[];
             name: string;
         };
+        /**
+         * @description Company headcount bands.
+         * @enum {string}
+         */
+        CompanySize: "startup" | "small" | "medium" | "large" | "enterprise";
         CompanySource: {
             active: boolean;
             board_token: string;
@@ -751,6 +800,8 @@ export interface components {
         };
         JobSummary: {
             apply_url: string;
+            /** @description The posting is open only to U.S. citizens or security-clearance holders. */
+            citizens_only: boolean;
             /**
              * Format: date-time
              * @description Set once the job disappeared from the company's board.
@@ -772,6 +823,8 @@ export interface components {
             last_seen_at: string;
             locations: string[];
             match?: components["schemas"]["Match"] | null;
+            /** @description The posting says it won't sponsor a work visa. */
+            no_sponsorship: boolean;
             /** @description Open more than 60 days or reposted more than twice. */
             possibly_stale: boolean;
             /**
@@ -854,6 +907,11 @@ export interface components {
             email: string;
             id: string;
         };
+        /**
+         * @description Where the user is with the questionnaire.
+         * @enum {string}
+         */
+        Onboarding: "not_started" | "skipped" | "done";
         Personal: {
             /** @default  */
             city: string;
@@ -889,6 +947,64 @@ export interface components {
          * @enum {string}
          */
         Platform: "greenhouse" | "lever" | "ashby" | "workday" | "smartrecruiters" | "workable" | "recruitee" | "bamboohr";
+        Preferences: {
+            /**
+             * @description Not used by the feed until company data is collected.
+             * @default []
+             */
+            company_sizes: components["schemas"]["CompanySize"][];
+            /** @default [] */
+            employment_types: components["schemas"]["EmploymentType"][];
+            /**
+             * @description Deal-breakers: never show these companies.
+             * @default []
+             */
+            excluded_companies: string[];
+            /**
+             * @description Deal-breakers: hide titles with these words, e.g. "manager".
+             * @default []
+             */
+            excluded_title_words: string[];
+            /**
+             * @description With `salary_min`, still show jobs that don't list a salary.
+             * @default true
+             */
+            include_unlisted_salary: boolean;
+            /**
+             * @description Not used by the feed until company data is collected.
+             * @default []
+             */
+            industries: string[];
+            /**
+             * @description Cities or states, e.g. "Austin, TX" or "Texas". Remote jobs are shown
+             *     regardless when `workplaces` includes remote.
+             * @default []
+             */
+            locations: string[];
+            /**
+             * Format: int32
+             * @description Minimum yearly salary in USD.
+             * @default null
+             */
+            salary_min: number | null;
+            /** @default [] */
+            seniority: components["schemas"]["Seniority"][];
+            /**
+             * @description Job titles to look for, e.g. "Software Engineer". Any of them matches.
+             * @default []
+             */
+            titles: string[];
+            /**
+             * @default {
+             *       "authorized_us": null,
+             *       "needs_sponsorship": null,
+             *       "us_citizen": null
+             *     }
+             */
+            work_authorization: components["schemas"]["WorkAuthorization"];
+            /** @default [] */
+            workplaces: components["schemas"]["Workplace"][];
+        };
         Profile: {
             /**
              * @default {
@@ -987,6 +1103,12 @@ export interface components {
         };
         /** @enum {string} */
         SalaryPeriod: "year" | "hour";
+        SearchPreferences: {
+            onboarding: components["schemas"]["Onboarding"];
+            preferences: components["schemas"]["Preferences"];
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
         Skill: {
@@ -1020,6 +1142,15 @@ export interface components {
              * @description Companies not checked yet.
              */
             pending: number;
+        };
+        /** @description The work authorization questions, shared with `application_answers`. */
+        WorkAuthorization: {
+            /** @default null */
+            authorized_us: boolean | null;
+            /** @default null */
+            needs_sponsorship: boolean | null;
+            /** @default null */
+            us_citizen: boolean | null;
         };
         /** @enum {string} */
         Workplace: "onsite" | "hybrid" | "remote";
@@ -1392,7 +1523,16 @@ export interface operations {
             query?: {
                 /** @description Matches title, department and company. */
                 q?: string;
-                /** @description Matches any of the job's locations, e.g. "New York". */
+                /**
+                 * @description Comma-separated job titles; a job matches when its title has every
+                 *     word of any one of them, e.g. `software engineer,data engineer`.
+                 */
+                title?: string;
+                /**
+                 * @description Semicolon-separated places, e.g. `Austin, TX; Texas; Remote`. A state
+                 *     matches by name or code. When `workplace` includes remote, remote
+                 *     jobs match too.
+                 */
                 location?: string;
                 /** @description Comma-separated: onsite, hybrid, remote. */
                 workplace?: string;
@@ -1407,8 +1547,24 @@ export interface operations {
                 /** @description Comma-separated hiring platforms or job boards, e.g. greenhouse,workday,himalayas. */
                 source?: string;
                 posted_within?: "24h" | "3d" | "1w" | "2w" | "1m" | "3m";
-                /** @description Minimum yearly salary; jobs without a listed salary are excluded. */
+                /**
+                 * @description Minimum yearly salary; jobs without a listed salary are excluded
+                 *     unless `include_unlisted_salary` is set.
+                 */
                 salary_min?: number;
+                /** @description With `salary_min`, keep jobs that don't list a salary. */
+                include_unlisted_salary?: boolean;
+                /**
+                 * @description Comma-separated words or phrases; jobs whose title contains any of
+                 *     them as whole words are hidden, e.g. `manager,sales`.
+                 */
+                exclude_title?: string;
+                /** @description Comma-separated company names to hide. */
+                exclude_company?: string;
+                /** @description Hide jobs that say they won't sponsor a work visa. */
+                hide_no_sponsorship?: boolean;
+                /** @description Hide jobs open only to U.S. citizens or security-clearance holders. */
+                hide_citizens_only?: boolean;
                 /** @description Hide jobs flagged as possibly stale. */
                 hide_stale?: boolean;
                 sort?: "recommended" | "newest" | "salary";
@@ -1484,6 +1640,99 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPreferences"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPreferences"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    skip_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPreferences"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

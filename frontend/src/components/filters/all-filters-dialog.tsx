@@ -19,13 +19,13 @@ import {
   type FilterKey,
   POSTED_WITHIN,
   type Query,
-  SALARY_MIN,
   SENIORITY,
   SOURCE,
   WORKPLACE,
   activeCount,
   clearFilters,
   listOf,
+  salaryOptions,
   toApiQuery,
   toggleInList,
   withValue,
@@ -34,6 +34,7 @@ import { cn } from "cn";
 import { CompanyPicker } from "./company-picker";
 import { type Choice, CheckList, RadioList, facetChoices } from "./controls";
 import { useFeed } from "./feed-context";
+import { TagInput } from "./tag-input";
 
 type Section = {
   id: string;
@@ -67,6 +68,55 @@ const radios = (key: FilterKey, options: Choice[], anyLabel: string): Section["r
       />
     );
   };
+
+const tags = (key: FilterKey, label: string, placeholder: string, hint: string): Section["render"] =>
+  function TagSection(draft, set) {
+    return (
+      <div className="max-w-lg space-y-2">
+        <TagInput
+          label={label}
+          value={listOf(draft, key)}
+          onChange={(v) => set(withValue(draft, key, v))}
+          separators={key === "location" ? [";"] : [","]}
+          placeholder={placeholder}
+        />
+        <p className="text-sm text-muted-foreground">{hint}</p>
+      </div>
+    );
+  };
+
+const toggle = (key: FilterKey, title: string, hint: string): Section["render"] =>
+  function ToggleSection(draft, set) {
+    return <ToggleRow draft={draft} set={set} filterKey={key} title={title} hint={hint} />;
+  };
+
+function ToggleRow({
+  draft,
+  set,
+  filterKey,
+  title,
+  hint,
+}: {
+  draft: Query;
+  set: (q: Query) => void;
+  filterKey: FilterKey;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <label className="flex max-w-md cursor-pointer items-start gap-3 rounded-xl bg-muted/60 p-4">
+      <Switch
+        checked={draft[filterKey] === "true"}
+        onCheckedChange={(on) => set(withValue(draft, filterKey, on ? "true" : undefined))}
+        className="mt-0.5"
+      />
+      <span className="space-y-1">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-sm text-muted-foreground">{hint}</span>
+      </span>
+    </label>
+  );
+}
 
 const text = (key: FilterKey, placeholder: string): Section["render"] =>
   function TextSection(draft, set) {
@@ -105,12 +155,60 @@ const SECTIONS: Section[] = [
       </label>
     ),
   },
+  {
+    id: "titles",
+    group: "Role",
+    label: "Job titles",
+    keys: ["title"],
+    render: tags(
+      "title",
+      "Job titles",
+      "e.g. Software Engineer, then Enter",
+      "Any of these. A job matches when its title has every word of one of them, in any order.",
+    ),
+  },
   { id: "keywords", group: "Role", label: "Keywords", keys: ["q"], render: text("q", "Title, company or skill, e.g. Rust") },
   { id: "department", group: "Role", label: "Department", keys: ["department"], render: checks("department", (f) => facetChoices(f.departments)) },
   { id: "seniority", group: "Role", label: "Experience level", keys: ["seniority"], render: checks("seniority", () => SENIORITY) },
   { id: "type", group: "Role", label: "Job type", keys: ["employment_type"], render: checks("employment_type", () => EMPLOYMENT) },
-  { id: "salary", group: "Pay", label: "Salary", keys: ["salary_min"], render: radios("salary_min", SALARY_MIN, "Any salary") },
-  { id: "location", group: "Location", label: "Location", keys: ["location"], render: text("location", "City, state or Remote") },
+  {
+    id: "salary",
+    group: "Pay",
+    label: "Salary",
+    keys: ["salary_min"],
+    render: (draft, set) => (
+      <div className="space-y-4">
+        <RadioList
+          options={salaryOptions(draft.salary_min)}
+          value={draft.salary_min}
+          anyLabel="Any salary"
+          onChange={(v) => set(withValue(draft, "salary_min", v))}
+          className="sm:grid sm:grid-cols-2 sm:gap-x-4"
+        />
+        {draft.salary_min && (
+          <ToggleRow
+            draft={draft}
+            set={set}
+            filterKey="include_unlisted_salary"
+            title="Also show jobs that don't list a salary"
+            hint="Many postings leave pay out."
+          />
+        )}
+      </div>
+    ),
+  },
+  {
+    id: "location",
+    group: "Location",
+    label: "Location",
+    keys: ["location"],
+    render: tags(
+      "location",
+      "Locations",
+      "e.g. Austin, TX, then Enter",
+      "Any of these: a city with its state, or a whole state. When Remote is picked under Workplace, remote jobs show too.",
+    ),
+  },
   { id: "workplace", group: "Location", label: "Workplace", keys: ["workplace"], render: checks("workplace", () => WORKPLACE) },
   {
     id: "company",
@@ -127,6 +225,54 @@ const SECTIONS: Section[] = [
     ),
   },
   { id: "source", group: "Company", label: "Source", keys: ["source"], render: checks("source", () => SOURCE) },
+  {
+    id: "exclude-title",
+    group: "Deal-breakers",
+    label: "Excluded titles",
+    keys: ["exclude_title"],
+    render: tags(
+      "exclude_title",
+      "Hide titles with these words",
+      "e.g. manager, then Enter",
+      "Hides jobs whose title has any of these words or phrases.",
+    ),
+  },
+  {
+    id: "exclude-company",
+    group: "Deal-breakers",
+    label: "Excluded companies",
+    keys: ["exclude_company"],
+    render: (draft, set) => (
+      <CompanyPicker
+        top={[]}
+        selected={listOf(draft, "exclude_company")}
+        onToggle={(v) => set(toggleInList(draft, "exclude_company", v))}
+        className="max-w-md"
+      />
+    ),
+  },
+  {
+    id: "sponsorship",
+    group: "Work authorization",
+    label: "Visa sponsorship",
+    keys: ["hide_no_sponsorship"],
+    render: toggle(
+      "hide_no_sponsorship",
+      "Hide jobs that won't sponsor a visa",
+      "Read from the posting: \"unable to sponsor\", \"no visa sponsorship\", \"without sponsorship\" and similar.",
+    ),
+  },
+  {
+    id: "citizenship",
+    group: "Work authorization",
+    label: "Citizenship",
+    keys: ["hide_citizens_only"],
+    render: toggle(
+      "hide_citizens_only",
+      "Hide jobs for U.S. citizens only",
+      "Read from the posting: \"must be a U.S. citizen\", or a security clearance required.",
+    ),
+  },
 ];
 
 export function AllFiltersDialog({ facets }: { facets: Facets }) {

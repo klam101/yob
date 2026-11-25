@@ -2,3 +2,6 @@
 *.sh text eol=lf
 # Windows PowerShell 5.1 works best with Windows line endings.
 *.ps1 text eol=crlf
+# Migrations are checksummed by sqlx; a line-ending change counts as an edit
+# and stops the API and worker from starting.
+*.sql text eol=lf

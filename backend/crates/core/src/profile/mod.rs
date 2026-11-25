@@ -6,6 +6,7 @@
 
 pub mod crypto;
 pub mod parse;
+pub mod preferences;
 pub mod resume;
 
 use chrono::NaiveDate;

@@ -89,9 +89,14 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Save, rename and delete named searches (stored filter query)
 
 ### 3. Onboarding questionnaire
-- [ ] `search_preferences` table and API
-- [ ] Step-by-step wizard: roles, job type, location and remote, work authorization, seniority, salary and deal-breakers
-- [ ] Preferences become the feed's default filters; editable later in Profile
+- [x] `search_preferences` table and API (`GET`/`PUT /preferences`, `POST /preferences/skip`); work authorization shared with `application_answers`
+- [x] Step-by-step wizard at `/onboarding`: roles and seniority, job type, workplace and places, work authorization, salary, companies and deal-breakers; the feed sends you there until it's finished or skipped
+- [x] Preferences become the feed's default filters ("My preferences" chip); editable at `/preferences`, linked from Profile
+- [x] New feed filters: several titles, several places (`;`), keep jobs without a salary, excluded title words and companies, hide no-sponsorship and citizens-only jobs
+- [x] `no_sponsorship` and `citizens_only` read from descriptions by explicit wording (NORMALIZE_VERSION 8)
+- [ ] Company size and industry filters, once company data is collected (answers are already saved)
+- [ ] Title synonyms ("SWE", "Sr.", "Front-end" vs "Frontend") so fewer matching jobs are missed
+- [ ] Suggest job titles from the profile's experience on the first step
 
 ### 4. Resume and profile
 - [x] Profile tables, one per section (`experiences`, `educations`, `projects`, `skills`, ...); each section saves as a whole, in order

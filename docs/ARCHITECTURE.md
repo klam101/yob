@@ -55,7 +55,7 @@ Profile is stored as structured facts once, and every resume, cover letter and a
 | Table | Holds | Key links |
 | --- | --- | --- |
 | `users` | Login, settings | |
-| `search_preferences` | Questionnaire answers: target titles, seniority, locations, remote, salary floor, industries, deal-breakers, plus saved named searches | `user_id` |
+| `search_preferences` | Questionnaire answers: titles, seniority, job types, workplaces, locations, salary floor (and whether to keep jobs without a salary), company sizes, industries, deal-breakers (title words, companies); `completed_at` is NULL while skipped. Work authorization is kept in `application_answers` | `user_id` |
 | `profiles`, `profile_links` | Name, contact details, address, headline, summary; LinkedIn, GitHub and portfolio links | `user_id` |
 | `experiences`, `educations`, `projects`, `skills` | The profile's lists, one row per entry with a `position` for order, month dates (an experience with no end is current) and bullets as an ordered `text[]` | `user_id` |
 | `application_answers` | Work authorization and sponsorship in plain columns; equal-employment answers as one AES-256-GCM blob (key `PROFILE_ENCRYPTION_KEY`) | `user_id` |
@@ -143,9 +143,15 @@ When no company is due, the worker verifies candidates through the same rate-lim
 
 What you want comes from your own answers; your resume only drives recommendations and tailoring.
 
-1. **Questionnaire first.** Input fields on first launch: titles, seniority (intern, entry, mid, senior, staff+), locations, remote or on-site, salary floor, work authorization and sponsorship, company size or industry, deal-breakers. Editable any time.
-2. **The feed uses those answers as default filters.**
-3. **Advanced filters stay visible** (title, location, remote, salary, seniority, company, platform, posted date, stale), and any filter set can be saved as a named search.
+1. **Questionnaire first.** Until it's finished or skipped, the feed sends you to `/onboarding`: six steps (roles and seniority, job type, workplace and places, work authorization, salary, companies and deal-breakers). Every question can be left blank, meaning "any". Editable any time at `/preferences` (linked from Profile).
+2. **The feed uses those answers as default filters.** With no query in the URL, `/jobs` applies them (`fromPreferences` in `src/lib/filters.ts`); a "My preferences" chip shows when they're applied and brings them back after you change filters. "Clear filters" sets `all=1`, so an empty feed stays empty on purpose. How each answer filters:
+   - **Titles:** any title matches when the job title has every one of its words, as whole words in any order ("Software Engineer" finds "Engineer, Software").
+   - **Places:** `location` holds places separated by `;`. A state matches by name or code ("Austin, TX" finds "Austin, Texas" and "US-TX-Austin" but not "Portland, ME" for "Portland, OR"). With Remote picked, remote jobs match wherever they're based.
+   - **Salary floor:** by the yearly maximum, optionally keeping jobs that list no salary.
+   - **Deal-breakers:** title words (whole words, so "intern" doesn't hide "Internal") and exact company names.
+   - **Work authorization:** needing sponsorship hides jobs flagged `no_sponsorship`; not being a citizen hides jobs flagged `citizens_only`. `normalize::restrictions` sets both flags from explicit wording in the description only ("unable to sponsor", "must be a U.S. citizen", "active Secret clearance"), so a job that says nothing is never hidden. "U.S. citizen or permanent resident" and export-license boilerplate don't count.
+   - **Company size and industry** are saved but don't filter until company data is collected.
+3. **Advanced filters stay visible** (titles, keywords, location, remote, salary, seniority, company, platform, posted date, stale, deal-breakers, work authorization), and any filter set can be saved as a named search.
 4. **Resume upload, separately, powers recommendations.** The resume is read into a draft profile you review before saving (see Profile below). Within the jobs your answers allow, they drive the fit score and a "Recommended for you" sort, and supply the facts for tailoring and autofill. The resume never changes your answers.
 
 ## Matching and tailored documents
