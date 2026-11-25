@@ -13,7 +13,7 @@ export default function ResumePage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Resume</h1>
         <p className="text-muted-foreground">
-          Your uploaded resumes and the projects tailored versions are built from.
+          Your uploaded resumes. Open one to edit it, or update your profile from it.
         </p>
       </header>
       <Suspense fallback={<Skeleton className="h-[28rem] rounded-3xl" />}>
@@ -25,11 +25,8 @@ export default function ResumePage() {
 
 async function LoadedResumes() {
   const api = await serverApi();
-  const [resumes, profile] = await Promise.all([
-    api.GET("/profile/resumes").catch(() => null),
-    api.GET("/profile").catch(() => null),
-  ]);
-  if (resumes?.response.status === 401 || profile?.response.status === 401) redirect("/login?next=/resume");
-  if (!resumes?.data || !profile?.data) return <ApiError message="Couldn't load your resumes." />;
-  return <ResumeManager initial={resumes.data} profile={profile.data} />;
+  const resumes = await api.GET("/profile/resumes").catch(() => null);
+  if (resumes?.response.status === 401) redirect("/login?next=/resume");
+  if (!resumes?.data) return <ApiError message="Couldn't load your resumes." />;
+  return <ResumeManager initial={resumes.data} />;
 }

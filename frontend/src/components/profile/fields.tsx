@@ -263,6 +263,7 @@ export function BulletList({
   value,
   onChange,
   onShift,
+  marker,
 }: {
   label?: string;
   name?: string;
@@ -273,6 +274,8 @@ export function BulletList({
    * so anything that points at bullets by index can follow.
    */
   onShift?: (at: number, by: number) => void;
+  /** Something to show after bullet `index` (the resume page's "Changed" tag). */
+  marker?: (index: number) => React.ReactNode;
 }) {
   const error = useFieldError(name);
   const base = useFieldPath(name);
@@ -372,6 +375,7 @@ export function BulletList({
                 }}
                 className={cn(error && invalidClass)}
               />
+              {marker?.(i)}
               <IconButton label="Remove bullet" onClick={() => remove(i, null)} className="mt-1">
                 <X />
               </IconButton>

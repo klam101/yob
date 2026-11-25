@@ -16,13 +16,10 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { Profile, ResumeDetail, ResumeInfo, ResumeUploaded } from "@/api/client";
-import { ProjectEditor } from "@/components/profile/editors";
+import type { ResumeDetail, ResumeInfo, ResumeUploaded } from "@/api/client";
 import { FieldScope, TextField } from "@/components/profile/fields";
 import { ResumeUpload } from "@/components/profile/resume-upload";
-import { resumes as resumeApi, save } from "@/components/profile/save";
-import { Section } from "@/components/profile/section";
-import { ProjectView } from "@/components/profile/views";
+import { resumes as resumeApi } from "@/components/profile/save";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,18 +48,16 @@ type Dialogs =
   | null;
 
 /**
- * The Resume page: uploaded resumes (with a primary one) and the projects
- * tailored resumes draw from. A resume opens on its edit page; "Update
- * profile" copies chosen sections of it into the profile.
+ * The Resume page: uploaded resumes, with a primary one. A resume opens on
+ * its edit page; "Update profile" copies chosen sections of it into the
+ * profile.
  */
-export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; profile: Profile }) {
+export function ResumeManager({ initial }: { initial: ResumeInfo[] }) {
   const router = useRouter();
   const [list, setList] = useState(initial);
-  const [projects, setProjects] = useState(profile.projects);
   const [dialog, setDialog] = useState<Dialogs>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
-  const [editingProjects, setEditingProjects] = useState(false);
 
   async function refresh() {
     const r = await resumeApi.list();
@@ -212,25 +207,6 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
           )}
         </div>
       </section>
-
-      <div className="rounded-3xl border border-border/70 bg-card p-5 shadow-soft sm:p-7">
-        <Section
-          id="projects"
-          title="Projects"
-          scope="projects"
-          open={editingProjects}
-          onOpenChange={setEditingProjects}
-          note="Tailored resumes pick from these projects. They aren't part of your profile."
-          view={<ProjectView items={projects} />}
-          initial={() => projects}
-          edit={(d, set) => <ProjectEditor value={d} onChange={set} />}
-          onSave={async (d) => {
-            const r = await save.projects(d);
-            if (r.ok) setProjects(r.value);
-            return r;
-          }}
-        />
-      </div>
 
       <section className="flex items-start gap-4 rounded-3xl border border-dashed border-border p-5 sm:p-7">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary">

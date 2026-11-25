@@ -110,7 +110,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Education minor, project one-line summary, middle name and phone type; skill groups without a colon; "Class of 2026" means May
 - [x] Profile page like Jobright's: one scrolling page with section tabs, editing in a side panel, one box per bullet, errors shown under the field, completeness card
 - [x] Experience and education sorted newest first on save; overlapping jobs get a note, not an error
-- [x] Resume page (`/resume`, was Documents): resumes list with a primary one, rename and target title, fill profile from a resume, download, delete; projects live here
+- [x] Resume page (`/resume`, was Documents): resumes list with a primary one, rename and target title, update profile from a resume, download, delete
 - [x] `./scripts/dev.sh parse-resume <file>` to see what the parser makes of a file
 - [x] Resume page per resume (now `/resume/edit/{id}`): its own content edited in place with autosave; what the parser changed with Keep/Undo; fix capitals; coursework chips; section order per resume
 - [x] The first resume fills an empty profile automatically, once; later resumes ask before updating it

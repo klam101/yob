@@ -4,7 +4,7 @@ import { ArrowRight, Check, Info, Undo2, Wand2 } from "lucide-react";
 import type { ResumeChange, ResumeContent } from "@/api/client";
 import { Button } from "@/components/ui/button";
 
-const REASON: Record<ResumeChange["kind"], string> = {
+export const REASON: Record<ResumeChange["kind"], string> = {
   capitals: "Written in capitals in the file; changed to title case.",
   small_caps: "The font's small capitals came out with a lowercase \"i\"; fixed.",
   joined_word: "A word was split across two lines; joined back.",
@@ -88,8 +88,8 @@ export function ChangesPanel({
             {changes.length} {changes.length === 1 ? "thing" : "things"} the parser changed
           </h2>
           <p className="text-xs text-muted-foreground">
-            Check each against your file. Fields with a <span className="inline-block size-1.5 rounded-full bg-warning align-middle" /> dot
-            are on this list.
+            Check each against your file. Fields with a <span className="font-medium">Changed</span> tag are on this
+            list.
           </p>
         </div>
       </div>

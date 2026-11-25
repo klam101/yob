@@ -51,7 +51,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isAllCaps, tidyCaps } from "@/lib/caps";
 import { cn } from "cn";
 import { ChangesPanel } from "./changes-panel";
-import { InlineMonth, InlineText, OpenChanges } from "./inline";
+import { ChangedTag, type Changes, ChangesContext, InlineMonth, InlineText } from "./inline";
 import { DeleteDialog, EditDetailsDialog } from "./resume-manager";
 import { UpdateProfileDialog } from "./update-profile-dialog";
 
@@ -277,7 +277,10 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
     };
   }, [id]);
 
-  const openChanges = useMemo(() => new Set(content.changes.map((c) => c.field)), [content.changes]);
+  const keep = useCallback(
+    (i: number) => update((c) => ({ ...c, changes: c.changes.filter((_, j) => j !== i) })),
+    [update],
+  );
   const capsCount = capsFields(content).length;
   const fieldError = error?.field ? { field: error.field, message: error.message } : null;
   const toCheck = content.changes.length + content.unplaced.length;
@@ -307,6 +310,13 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
     });
   }
 
+  const byField = useMemo(() => {
+    const m: Changes["byField"] = new Map();
+    content.changes.forEach((change, index) => m.set(change.field, [...(m.get(change.field) ?? []), { change, index }]));
+    return m;
+  }, [content.changes]);
+  const changesContext: Changes = { byField, keep, undo };
+
   const move = (i: number, by: number) =>
     update((c) => {
       const next = [...c.sections];
@@ -318,7 +328,7 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
   const edit: Edit = { content, set, update, shift, removeRow };
 
   return (
-    <OpenChanges.Provider value={openChanges}>
+    <ChangesContext.Provider value={changesContext}>
       <div className="space-y-4 pt-6">
         {/* Top bar */}
         <div className="flex flex-wrap items-center gap-2">
@@ -494,7 +504,7 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
                 setChecking(false);
                 setTimeout(() => showField(field), 250);
               }}
-              onKeep={(i) => update((c) => ({ ...c, changes: c.changes.filter((_, j) => j !== i) }))}
+              onKeep={keep}
               onUndo={undo}
               onKeepAll={() => update((c) => ({ ...c, changes: [] }))}
             />
@@ -555,7 +565,7 @@ export function ResumeEditor({ initial, openUpdate = false }: { initial: ResumeD
       {dialog === "delete" && (
         <DeleteDialog resume={info} onClose={() => setDialog(null)} onDeleted={() => router.push("/resume")} />
       )}
-    </OpenChanges.Provider>
+    </ChangesContext.Provider>
   );
 }
 
@@ -696,8 +706,10 @@ function Header({ content, set, update }: Edit) {
                       onChange={(v) => set(`header.links.${i}.label`, v)}
                       className="font-medium"
                     />
+                    <ChangedTag path={`header.links.${i}.url`} />
                   </div>
                   <InlineText
+                    tag={false}
                     name="url"
                     label={`Link ${i + 1} address`}
                     placeholder="https://…"
@@ -815,11 +827,15 @@ function Educations({ content, set, update, shift, removeRow }: Edit) {
                 </div>
                 {/* The degree line reads as one sentence; each part is its own field. */}
                 <div className="flex flex-wrap items-center gap-x-0.5 text-sm">
-                  <InlineText fit name="degree" label="Degree" placeholder="Degree" value={e.degree} onChange={(v) => set(`${at}.degree`, v)} />
+                  <InlineText fit tag={false} name="degree" label="Degree" placeholder="Degree" value={e.degree} onChange={(v) => set(`${at}.degree`, v)} />
                   <span className="text-muted-foreground">in</span>
-                  <InlineText fit name="field_of_study" label="Major" placeholder="Major" value={e.field_of_study} onChange={(v) => set(`${at}.field_of_study`, v)} />
+                  <InlineText fit tag={false} name="field_of_study" label="Major" placeholder="Major" value={e.field_of_study} onChange={(v) => set(`${at}.field_of_study`, v)} />
                   <span className="text-muted-foreground">· Minor in</span>
-                  <InlineText fit name="minor" label="Minor" placeholder="Minor" value={e.minor} onChange={(v) => set(`${at}.minor`, v)} />
+                  <InlineText fit tag={false} name="minor" label="Minor" placeholder="Minor" value={e.minor} onChange={(v) => set(`${at}.minor`, v)} />
+                  {/* One tag for the whole line, at its end. */}
+                  {["degree", "field_of_study", "minor"].map((f) => (
+                    <ChangedTag key={f} path={`${at}.${f}`} className="ml-1" />
+                  ))}
                 </div>
                 <div className="max-w-md">
                   <InlineText
@@ -845,6 +861,7 @@ function Educations({ content, set, update, shift, removeRow }: Edit) {
                     value={e.bullets}
                     onChange={(v) => set(`${at}.bullets`, v)}
                     onShift={(pos, by) => shift(`${at}.bullets`, pos, by)}
+                    marker={(n) => <ChangedTag path={`${at}.bullets.${n}`} className="mt-2" />}
                   />
                 </div>
               </EntryShell>
@@ -895,6 +912,7 @@ function Experiences({ content, set, update, shift, removeRow }: Edit) {
                     value={x.bullets}
                     onChange={(v) => set(`${at}.bullets`, v)}
                     onShift={(pos, by) => shift(`${at}.bullets`, pos, by)}
+                    marker={(n) => <ChangedTag path={`${at}.bullets.${n}`} className="mt-2" />}
                   />
                 </div>
               </EntryShell>
@@ -931,6 +949,7 @@ function Projects({ content, set, update, shift, removeRow }: Edit) {
                     value={p.bullets}
                     onChange={(v) => set(`${at}.bullets`, v)}
                     onShift={(pos, by) => shift(`${at}.bullets`, pos, by)}
+                    marker={(n) => <ChangedTag path={`${at}.bullets.${n}`} className="mt-2" />}
                   />
                 </div>
               </EntryShell>
