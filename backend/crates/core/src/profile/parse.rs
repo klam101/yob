@@ -8,14 +8,19 @@
 //! 5. Skills split on commas and friends; "Label: a, b" sets the category.
 //!
 //! Whatever can't be placed is returned as `unsorted`, so the review screen
-//! can show it. The draft is never saved without the user reviewing it.
+//! can show it. What the parser changed from the file's literal text (capitals,
+//! a split degree line, a link label taken off a name) is returned as
+//! `changes`, for the user to check on the resume's page.
 
 use std::sync::LazyLock;
 
 use regex::Regex;
 
 use super::{
-    Education, Experience, Link, LinkKind, Profile, Project, Skill, link_kind, normalize_url,
+    Education, Experience, Link, LinkKind, Profile, Project, Skill,
+    clean::{Fix, FixKind},
+    link_kind, normalize_url,
+    resume_content::{Change, ChangeKind, SectionKind},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -23,6 +28,18 @@ pub struct Parsed {
     pub profile: Profile,
     /// Lines the parser couldn't place, grouped by where they came from.
     pub unsorted: Vec<String>,
+    /// The order of the sections in the file.
+    pub sections: Vec<SectionKind>,
+    /// What the parser changed from the file's text, by field path.
+    pub changes: Vec<Change>,
+}
+
+/// Records a capitals change when tidying changed the text.
+fn caps_change(field: &str, raw: &str, tidy: &str, out: &mut Vec<Change>) {
+    let raw = raw.trim();
+    if !raw.is_empty() && raw != tidy {
+        out.push(Change::new(field, ChangeKind::Capitals, raw, tidy).undoable());
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -499,6 +516,8 @@ struct Dates {
     start: Option<String>,
     end: Option<String>,
     found: bool,
+    /// The text, when a year alone was read as May ("Class of 2026").
+    assumed_may: Option<String>,
 }
 
 /// Finds a range (or a single date) in the header lines and removes it.
@@ -513,6 +532,7 @@ fn take_dates(lines: &mut [String]) -> Dates {
                 start,
                 end,
                 found: true,
+                assumed_may: None,
             };
         }
     }
@@ -528,17 +548,20 @@ fn take_dates(lines: &mut [String]) -> Dates {
             }
             let bare_year = d.as_str().chars().all(|ch| ch.is_ascii_digit());
             // "Class of 2026", "Expected 2026": US degrees mostly finish in May.
-            let month = if bare_year && c.name("expected").is_some() {
+            let may = bare_year && c.name("expected").is_some();
+            let month = if may {
                 Some(format!("{}-05", d.as_str()))
             } else {
                 to_month(d.as_str(), true)
             };
+            let assumed_may = may.then(|| c.get(0).unwrap().as_str().trim().to_owned());
             let whole = c.get(0).unwrap().range();
             line.replace_range(whole, " ");
             return Dates {
                 start: month.clone(),
                 end: month,
                 found: true,
+                assumed_may,
             };
         }
     }
@@ -546,6 +569,7 @@ fn take_dates(lines: &mut [String]) -> Dates {
         start: None,
         end: None,
         found: false,
+        assumed_may: None,
     }
 }
 
@@ -842,7 +866,13 @@ fn entries(lines: &[&str]) -> Vec<Entry> {
     out
 }
 
-fn experience(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Experience> {
+/// One experience entry. Changes are recorded with paths inside the entry
+/// (`title`).
+fn experience(
+    mut e: Entry,
+    unsorted: &mut Vec<String>,
+    changes: &mut Vec<Change>,
+) -> Option<Experience> {
     let dates = take_dates(&mut e.header);
     let all = e.header.join(" ");
     let mut parts = pieces(&e.header);
@@ -935,10 +965,13 @@ fn experience(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Experience> {
         }
         return None;
     }
+    let (tidy_company, tidy_title) = (tidy_caps(&company), tidy_caps(&title));
+    caps_change("company", &company, &tidy_company, changes);
+    caps_change("title", &title, &tidy_title, changes);
     Some(Experience {
         employment_type: employment_type(&format!("{title} {all}")),
-        company: tidy_caps(&company),
-        title: tidy_caps(&title),
+        company: tidy_company,
+        title: tidy_title,
         location,
         start: dates.start,
         end: if dates.found { dates.end } else { None },
@@ -946,7 +979,12 @@ fn experience(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Experience> {
     })
 }
 
-fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
+/// One education entry; changes as in `experience`.
+fn education(
+    mut e: Entry,
+    unsorted: &mut Vec<String>,
+    changes: &mut Vec<Change>,
+) -> Option<Education> {
     let mut gpa = String::new();
     for line in e.header.iter_mut().chain(e.bullets.iter_mut()) {
         if gpa.is_empty()
@@ -984,6 +1022,8 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
         .map(|i| parts.remove(i))
         .unwrap_or_default();
     let (mut degree, mut field, mut minor) = (String::new(), String::new(), String::new());
+    // The degree line as the file had it, to record (and undo) the split.
+    let mut degree_raw = String::new();
     // The degree line is taken whole from the header, as `pieces` would
     // split it at the comma before the minor.
     if let Some(i) = e
@@ -991,11 +1031,13 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
         .iter()
         .position(|l| DEGREE.is_match(l) && !has_word(l, SCHOOL_WORDS))
     {
+        degree_raw = e.header[i].split_whitespace().collect::<Vec<_>>().join(" ");
         (degree, field, minor) = degree_line(&e.header[i]);
         let words = degree_words(&e.header[i]);
         parts.retain(|p| !degree_words(p).iter().all(|w| words.contains(w)));
     } else if let Some(i) = parts.iter().position(|p| DEGREE.is_match(p)) {
-        (degree, field, minor) = degree_line(&parts.remove(i));
+        degree_raw = parts.remove(i);
+        (degree, field, minor) = degree_line(&degree_raw);
     }
     // "Major: X" / "Minor: Y" lines.
     let mut details: Vec<String> = Vec::new();
@@ -1025,11 +1067,45 @@ fn education(mut e: Entry, unsorted: &mut Vec<String>) -> Option<Education> {
         }
         return None;
     }
+    let (field, minor) = (tidy_caps(&field), tidy_caps(&minor));
+    let tidy_school = tidy_caps(&school);
+    caps_change("school", &school, &tidy_school, changes);
+    if !degree_raw.is_empty() && (!field.is_empty() || !minor.is_empty() || degree != degree_raw) {
+        let after = [
+            degree.clone(),
+            field.clone(),
+            if minor.is_empty() {
+                String::new()
+            } else {
+                format!("Minor in {minor}")
+            },
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+        let mut c = Change::new("degree", ChangeKind::DegreeSplit, &degree_raw, &after);
+        c.undo = [
+            ("degree", degree_raw.as_str()),
+            ("field_of_study", ""),
+            ("minor", ""),
+        ]
+        .iter()
+        .map(|(f, v)| super::resume_content::FieldValue {
+            field: (*f).to_owned(),
+            value: (*v).to_owned(),
+        })
+        .collect();
+        changes.push(c);
+    }
+    if let (Some(text), Some(end)) = (&dates.assumed_may, &dates.end) {
+        changes.push(Change::new("end", ChangeKind::ClassOfMay, text, end));
+    }
     Some(Education {
-        school: tidy_caps(&school),
+        school: tidy_school,
         degree,
-        field_of_study: tidy_caps(&field),
-        minor: tidy_caps(&minor),
+        field_of_study: field,
+        minor,
         gpa,
         location,
         start: if dates.start != dates.end {
@@ -1057,7 +1133,11 @@ fn is_link_label(s: &str) -> bool {
 
 /// A project, and whether its header ended in a link label ("GitHub",
 /// "Demo") whose address is only in the file's links.
-fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<(Project, bool)> {
+fn project(
+    mut e: Entry,
+    unsorted: &mut Vec<String>,
+    changes: &mut Vec<Change>,
+) -> Option<(Project, bool)> {
     let dates = take_dates(&mut e.header);
     let mut url = String::new();
     for line in e.header.iter_mut() {
@@ -1072,6 +1152,11 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<(Project, bool)> 
     }
     // "Sunset | GitHub | Demo" -> "Sunset", labeled.
     let mut labeled = false;
+    let first_raw = e
+        .header
+        .first()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
     if let Some(first) = e.header.first_mut() {
         loop {
             let trimmed = first.trim_end_matches(|c: char| {
@@ -1134,6 +1219,7 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<(Project, bool)> 
         } else if summary.is_empty() {
             // "ONLINE BANKING PLATFORM": the line under the name.
             summary = tidy_caps(&p);
+            caps_change("summary", &p, &summary, changes);
         } else if role.is_empty() {
             role = p;
         } else {
@@ -1158,9 +1244,15 @@ fn project(mut e: Entry, unsorted: &mut Vec<String>) -> Option<(Project, bool)> 
         }
         true
     });
+    let tidy_name = tidy_caps(&name);
+    if labeled && !first_raw.is_empty() && first_raw != name {
+        changes.push(Change::new("name", ChangeKind::LinkLabel, &first_raw, &tidy_name).undoable());
+    } else {
+        caps_change("name", &name, &tidy_name, changes);
+    }
     Some((
         Project {
-            name: tidy_caps(&name),
+            name: tidy_name,
             summary,
             role,
             url,
@@ -1575,7 +1667,7 @@ fn title_case(w: &str) -> String {
 /// Parses resume text. `links` are the targets of the file's own links
 /// (`resume::extract`), used for addresses the text only labels.
 pub fn parse(text: &str, links: &[String]) -> Parsed {
-    let text = super::clean::clean(text);
+    let (text, fixes) = super::clean::clean_with_report(text);
     let lines: Vec<&str> = text.lines().collect();
     let mut sections: Vec<(Section, String, Vec<&str>)> =
         vec![(Section::Header, String::new(), Vec::new())];
@@ -1587,7 +1679,17 @@ pub fn parse(text: &str, links: &[String]) -> Parsed {
     }
 
     let mut parsed = Parsed::default();
-    let Parsed { profile, unsorted } = &mut parsed;
+    let Parsed {
+        profile,
+        unsorted,
+        sections: order,
+        changes,
+    } = &mut parsed;
+    let seen_section = |s: SectionKind, order: &mut Vec<SectionKind>| {
+        if !order.contains(&s) {
+            order.push(s);
+        }
+    };
     let mut coursework: Vec<String> = Vec::new();
     let mut labeled_projects: Vec<bool> = Vec::new();
     for (section, title, body) in sections {
@@ -1608,29 +1710,43 @@ pub fn parse(text: &str, links: &[String]) -> Parsed {
                 }
             }
             Section::Experience => {
+                seen_section(SectionKind::Experience, order);
                 for e in entries(&body) {
-                    if let Some(x) = experience(e, unsorted) {
+                    let mut c = Vec::new();
+                    if let Some(x) = experience(e, unsorted, &mut c) {
+                        let at = format!("experiences.{}", profile.experiences.len());
+                        changes.extend(c.into_iter().map(|c| c.under(&at)));
                         profile.experiences.push(x);
                     }
                 }
             }
             Section::Education => {
+                seen_section(SectionKind::Education, order);
                 for e in entries(&body) {
-                    // "Relevant Coursework: ..." inside Education.
-                    if let Some(x) = education(e, unsorted) {
+                    let mut c = Vec::new();
+                    if let Some(x) = education(e, unsorted, &mut c) {
+                        let at = format!("educations.{}", profile.educations.len());
+                        changes.extend(c.into_iter().map(|c| c.under(&at)));
                         profile.educations.push(x);
                     }
                 }
             }
             Section::Projects => {
+                seen_section(SectionKind::Projects, order);
                 for e in entries(&body) {
-                    if let Some((x, labeled)) = project(e, unsorted) {
+                    let mut c = Vec::new();
+                    if let Some((x, labeled)) = project(e, unsorted, &mut c) {
+                        let at = format!("projects.{}", profile.projects.len());
+                        changes.extend(c.into_iter().map(|c| c.under(&at)));
                         profile.projects.push(x);
                         labeled_projects.push(labeled);
                     }
                 }
             }
-            Section::Skills => profile.skills.extend(skills(&body)),
+            Section::Skills => {
+                seen_section(SectionKind::Skills, order);
+                profile.skills.extend(skills(&body));
+            }
             Section::Coursework => coursework.extend(
                 body.iter()
                     .map(|l| l.trim().to_owned())
@@ -1660,13 +1776,98 @@ pub fn parse(text: &str, links: &[String]) -> Parsed {
             None => unsorted.push(line),
         }
     }
-    place_links(profile, &labeled_projects, links, unsorted);
+    place_links(profile, &labeled_projects, links, unsorted, changes);
     // Duplicate skills (case-insensitive) keep the first.
     let mut seen = std::collections::HashSet::new();
     profile
         .skills
         .retain(|s| seen.insert(s.name.to_lowercase()));
+    attach_fixes(profile, &fixes, changes);
     parsed
+}
+
+/// Fields with text, by path, for matching cleanup fixes to them.
+fn fields(p: &Profile) -> Vec<(String, &str, bool)> {
+    // (path, value, is a bullet or other long text)
+    let mut out: Vec<(String, &str, bool)> = Vec::new();
+    for (i, l) in p.links.iter().enumerate() {
+        out.push((format!("header.links.{i}.url"), l.url.as_str(), false));
+    }
+    for (i, x) in p.experiences.iter().enumerate() {
+        out.push((format!("experiences.{i}.title"), x.title.as_str(), false));
+        out.push((
+            format!("experiences.{i}.company"),
+            x.company.as_str(),
+            false,
+        ));
+        for (j, b) in x.bullets.iter().enumerate() {
+            out.push((format!("experiences.{i}.bullets.{j}"), b.as_str(), true));
+        }
+    }
+    for (i, e) in p.educations.iter().enumerate() {
+        out.push((format!("educations.{i}.school"), e.school.as_str(), false));
+        out.push((format!("educations.{i}.degree"), e.degree.as_str(), false));
+        out.push((
+            format!("educations.{i}.field_of_study"),
+            e.field_of_study.as_str(),
+            false,
+        ));
+        out.push((format!("educations.{i}.minor"), e.minor.as_str(), false));
+    }
+    for (i, x) in p.projects.iter().enumerate() {
+        out.push((format!("projects.{i}.name"), x.name.as_str(), false));
+        out.push((format!("projects.{i}.summary"), x.summary.as_str(), false));
+        for (j, b) in x.bullets.iter().enumerate() {
+            out.push((format!("projects.{i}.bullets.{j}"), b.as_str(), true));
+        }
+    }
+    out
+}
+
+/// Turns the cleanup's line fixes into changes on the fields they touched.
+/// A field that already has a change (a capitals fix, say) gets no second
+/// one for the same text.
+fn attach_fixes(profile: &Profile, fixes: &[Fix], changes: &mut Vec<Change>) {
+    let lower = |s: &str| {
+        s.to_lowercase()
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+            .to_owned()
+    };
+    let fields = fields(profile);
+    for fix in fixes {
+        for word in &fix.words {
+            let w = lower(word);
+            for (path, value, long) in &fields {
+                let v = lower(value);
+                let hit = match fix.kind {
+                    // Whole words in titles and names; bullets would match
+                    // every "quality" in a sentence.
+                    FixKind::SmallCaps => {
+                        !long && v.split(|c: char| !c.is_alphanumeric()).any(|t| t == w)
+                    }
+                    FixKind::JoinedWord => v.contains(&w),
+                    FixKind::IconLink => v == w || v.ends_with(&w),
+                };
+                // The entry a path is in: "educations.0" of "educations.0.minor".
+                let entry = |f: &str| f.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
+                let covered = changes.iter().any(|c| {
+                    &c.field == path
+                        || (fix.kind == FixKind::SmallCaps && entry(&c.field) == entry(path))
+                });
+                if !hit || covered {
+                    continue;
+                }
+                let kind = match fix.kind {
+                    FixKind::SmallCaps => ChangeKind::SmallCaps,
+                    FixKind::JoinedWord => ChangeKind::JoinedWord,
+                    FixKind::IconLink => ChangeKind::IconLink,
+                };
+                changes.push(Change::new(path.clone(), kind, &fix.before, &fix.after));
+            }
+        }
+    }
 }
 
 /// A link without its scheme, `www.` and trailing slash, to compare links.
@@ -1700,7 +1901,19 @@ fn place_links(
     labeled_projects: &[bool],
     links: &[String],
     unsorted: &mut Vec<String>,
+    changes: &mut Vec<Change>,
 ) {
+    // Links the file's text spelled out; anything added after came only from
+    // the file's link annotations.
+    let in_text = profile.links.len();
+    let from_file = |field: String, url: &str| {
+        let mut c = Change::new(field.clone(), ChangeKind::LinkFromFile, "", url);
+        c.undo = vec![super::resume_content::FieldValue {
+            field,
+            value: String::new(),
+        }];
+        c
+    };
     let mut in_header = true;
     let mut leftover: Vec<String> = Vec::new();
     for raw in links {
@@ -1749,12 +1962,13 @@ fn place_links(
             || squash(host.split('.').next().unwrap_or("")),
             |p| squash(p),
         );
-        if let Some(p) = profile
+        if let Some(i) = profile
             .projects
-            .iter_mut()
-            .find(|p| p.url.is_empty() && !last.is_empty() && squash(&p.name) == last)
+            .iter()
+            .position(|p| p.url.is_empty() && !last.is_empty() && squash(&p.name) == last)
         {
-            p.url = url;
+            changes.push(from_file(format!("projects.{i}.url"), &url));
+            profile.projects[i].url = url;
             in_header = false;
             continue;
         }
@@ -1771,16 +1985,27 @@ fn place_links(
         leftover.push(url);
     }
     let mut leftover = leftover.into_iter();
-    for (p, labeled) in profile.projects.iter_mut().zip(labeled_projects) {
+    for (i, (p, labeled)) in profile
+        .projects
+        .iter_mut()
+        .zip(labeled_projects)
+        .enumerate()
+    {
         if *labeled && p.url.is_empty() {
             match leftover.next() {
-                Some(url) => p.url = url,
+                Some(url) => {
+                    changes.push(from_file(format!("projects.{i}.url"), &url));
+                    p.url = url;
+                }
                 None => break,
             }
         }
     }
     for url in leftover {
         unsorted.push(format!("Link: {url}"));
+    }
+    for (i, l) in profile.links.iter().enumerate().skip(in_text) {
+        changes.push(from_file(format!("header.links.{i}.url"), &l.url));
     }
 }
 

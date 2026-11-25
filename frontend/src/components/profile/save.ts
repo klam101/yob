@@ -6,7 +6,9 @@ import {
   type Profile,
   type ProfileLink,
   type Project,
-  type ResumeDraft,
+  type ResumeContent,
+  type ProfileSection,
+  type ResumeUploaded,
   type ResumeUpdate,
   type Skill,
   api,
@@ -66,8 +68,18 @@ export const resumes = {
       return { ok: false, message: "Can't reach the API. Is the stack running?" };
     }
   },
-  draft: (id: string) => done(api.GET("/profile/resumes/{id}/draft", { params: { path: { id } } })),
+  detail: (id: string) => done(api.GET("/profile/resumes/{id}", { params: { path: { id } } })),
+  apply: (id: string, sections: ProfileSection[]) =>
+    done(api.POST("/profile/resumes/{id}/apply", { params: { path: { id } }, body: { sections } })),
+  saveContent: (id: string, body: ResumeContent) =>
+    done(api.PUT("/profile/resumes/{id}/content", { params: { path: { id } }, body })),
+  reparse: (id: string) => done(api.POST("/profile/resumes/{id}/reparse", { params: { path: { id } } })),
 };
+
+/** Hides the "filled from your resume" banner. */
+export async function fillReviewed() {
+  await api.POST("/profile/fill-reviewed").catch(() => undefined);
+}
 
 export async function loadProfile(): Promise<Profile | null> {
   const { data } = await api.GET("/profile").catch(() => ({ data: undefined }));
@@ -75,14 +87,14 @@ export async function loadProfile(): Promise<Profile | null> {
 }
 
 /** Uploads a PDF or DOCX and returns the parsed draft (nothing is saved). */
-export async function uploadResume(file: File): Promise<Saved<ResumeDraft>> {
+export async function uploadResume(file: File): Promise<Saved<ResumeUploaded>> {
   if (file.size > 5 * 1024 * 1024) return { ok: false, message: "The file is larger than 5 MB." };
   const form = new FormData();
   form.append("file", file);
   try {
     const res = await fetch("/api/profile/resume", { method: "POST", body: form });
     const body = await res.json().catch(() => null);
-    if (res.ok && body) return { ok: true, value: body as ResumeDraft };
+    if (res.ok && body) return { ok: true, value: body as ResumeUploaded };
     if (res.status === 413) return { ok: false, message: "The file is larger than 5 MB." };
     return { ok: false, message: body?.message ?? "Couldn't read that file." };
   } catch {

@@ -4,11 +4,13 @@
 //! The profile is filled by hand or from an uploaded resume (`parse`), which
 //! produces a draft the user reviews before anything is saved.
 
+pub mod apply;
 pub mod clean;
 pub mod crypto;
 pub mod parse;
 pub mod preferences;
 pub mod resume;
+pub mod resume_content;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -168,6 +170,9 @@ pub struct Profile {
     pub projects: Vec<Project>,
     pub skills: Vec<Skill>,
     pub answers: Answers,
+    /// Set when a resume filled the profile automatically (read-only; it's
+    /// ignored when saving).
+    pub filled_from: Option<apply::FilledFrom>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -377,7 +382,8 @@ pub fn link_kind(url: &str) -> LinkKind {
 
 // --- loading -----------------------------------------------------------------
 
-pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Profile, ProfileError> {
+/// Saved personal details and links.
+pub async fn load_personal(pool: &PgPool, user_id: Uuid) -> sqlx::Result<(Personal, Vec<Link>)> {
     type PersonalRow = (
         String,
         String,
@@ -430,6 +436,11 @@ pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Prof
         url,
     })
     .collect();
+    Ok((personal, links))
+}
+
+pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Profile, ProfileError> {
+    let (personal, links) = load_personal(pool, user_id).await?;
 
     type EduRow = (
         String,
@@ -577,6 +588,7 @@ pub async fn load(pool: &PgPool, key: &ProfileKey, user_id: Uuid) -> Result<Prof
         projects,
         skills,
         answers,
+        filled_from: apply::filled_from(pool, user_id).await?,
     })
 }
 

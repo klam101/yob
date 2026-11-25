@@ -9,7 +9,10 @@ use quick_xml::events::Event;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::{ProfileError, invalid};
+use super::{
+    ProfileError, invalid, parse,
+    resume_content::{self, CONTENT_VERSION, ResumeContent},
+};
 
 pub const MAX_BYTES: usize = 5 * 1024 * 1024;
 
@@ -333,8 +336,10 @@ fn default_name(filename: &str) -> String {
     }
 }
 
-/// Keeps the original file, its text and its links. The first resume a user
-/// uploads becomes their primary one. Returns the new resume's id.
+/// Keeps the original file, its text and links, and the content read from
+/// it. The first resume a user uploads becomes their primary one. Returns
+/// the new resume's id.
+#[allow(clippy::too_many_arguments)]
 pub async fn save(
     pool: &PgPool,
     files: &Files,
@@ -343,6 +348,7 @@ pub async fn save(
     kind: Kind,
     bytes: Vec<u8>,
     extracted: &Extracted,
+    content: &ResumeContent,
 ) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
     let key = format!("resumes/{user_id}/{id}.{}", kind.extension());
@@ -355,9 +361,10 @@ pub async fn save(
     let filename = display_text(filename, 200);
     sqlx::query(
         "INSERT INTO resumes (id, user_id, file_key, filename, content_type, size_bytes, text,
-                              links, name, is_primary)
+                              links, name, is_primary, content, content_version)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                 NOT EXISTS (SELECT 1 FROM resumes WHERE user_id = $2 AND is_primary))",
+                 NOT EXISTS (SELECT 1 FROM resumes WHERE user_id = $2 AND is_primary),
+                 $10::jsonb, $11)",
     )
     .bind(id)
     .bind(user_id)
@@ -368,9 +375,129 @@ pub async fn save(
     .bind(&extracted.text)
     .bind(&extracted.links)
     .bind(default_name(&filename))
+    .bind(serde_json::to_string(content)?)
+    .bind(CONTENT_VERSION)
     .execute(pool)
     .await?;
     Ok(id)
+}
+
+/// Reads the original file again (or, without it, the stored text) and
+/// returns the content parsed from it. CPU work runs on a blocking thread.
+async fn read_again(
+    pool: &PgPool,
+    files: &Files,
+    user_id: Uuid,
+    id: Uuid,
+) -> anyhow::Result<Option<ResumeContent>> {
+    let Some((_, stored)) = extracted(pool, user_id, id).await? else {
+        return Ok(None);
+    };
+    let bytes = match file(pool, files, user_id, id).await {
+        Ok(found) => found.map(|(_, b)| b),
+        Err(e) => {
+            tracing::warn!(error = %e, "reading resume file, using its stored text");
+            None
+        }
+    };
+    let content = tokio::task::spawn_blocking(move || {
+        let x = bytes
+            .and_then(|b| detect(&b).and_then(|k| extract(k, &b).ok()))
+            .unwrap_or(stored);
+        resume_content::from_parsed(&parse::parse(&x.text, &x.links))
+    })
+    .await?;
+    Ok(Some(content))
+}
+
+async fn store_content(
+    pool: &PgPool,
+    user_id: Uuid,
+    id: Uuid,
+    content: &ResumeContent,
+    touch: bool,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE resumes SET content = $3::jsonb, content_version = $4,
+                updated_at = CASE WHEN $5 THEN now() ELSE updated_at END
+         WHERE id = $1 AND user_id = $2",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(serde_json::to_string(content)?)
+    .bind(CONTENT_VERSION)
+    .bind(touch)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// A resume's content. Resumes uploaded before contents were kept are read
+/// from their file the first time, and the result is stored.
+pub async fn content(
+    pool: &PgPool,
+    files: &Files,
+    user_id: Uuid,
+    id: Uuid,
+) -> anyhow::Result<Option<ResumeContent>> {
+    let row = sqlx::query_as::<_, (Option<String>, i32)>(
+        "SELECT content::text, content_version FROM resumes WHERE id = $1 AND user_id = $2",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        None => Ok(None),
+        Some((Some(json), version)) if version == CONTENT_VERSION => {
+            Ok(Some(serde_json::from_str(&json)?))
+        }
+        Some(_) => {
+            let Some(c) = read_again(pool, files, user_id, id).await? else {
+                return Ok(None);
+            };
+            store_content(pool, user_id, id, &c, false).await?;
+            Ok(Some(c))
+        }
+    }
+}
+
+/// Saves edited content after checking it; returns what was stored, or
+/// `Ok(None)` when the resume isn't this user's.
+pub async fn save_content(
+    pool: &PgPool,
+    user_id: Uuid,
+    id: Uuid,
+    content: &ResumeContent,
+) -> Result<Option<ResumeContent>, ProfileError> {
+    let clean = resume_content::validate(content)?;
+    let exists: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM resumes WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
+    if exists.is_none() {
+        return Ok(None);
+    }
+    store_content(pool, user_id, id, &clean, true)
+        .await
+        .map_err(|e| ProfileError::Invalid(format!("Couldn't save the resume: {e}")))?;
+    Ok(Some(clean))
+}
+
+/// "Read the file again": replaces the content with a fresh parse.
+pub async fn reparse(
+    pool: &PgPool,
+    files: &Files,
+    user_id: Uuid,
+    id: Uuid,
+) -> anyhow::Result<Option<ResumeContent>> {
+    let Some(c) = read_again(pool, files, user_id, id).await? else {
+        return Ok(None);
+    };
+    store_content(pool, user_id, id, &c, true).await?;
+    Ok(Some(c))
 }
 
 /// The primary resume first, then newest first.

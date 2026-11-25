@@ -49,4 +49,16 @@ fn main() {
     for u in &parsed.unsorted {
         println!("  {u}");
     }
+    println!("==== what the parser changed");
+    for c in &parsed.changes {
+        let undo = if c.undo.is_empty() {
+            ""
+        } else {
+            "  (can undo)"
+        };
+        println!(
+            "  {} [{:?}] {:?} -> {:?}{undo}",
+            c.field, c.kind, c.before, c.after
+        );
+    }
 }

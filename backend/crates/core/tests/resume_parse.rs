@@ -34,6 +34,7 @@ fn classic_single_column() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = load("classic.txt");
     let me = &p.personal;
     assert_eq!(
@@ -107,6 +108,7 @@ fn pipe_separated_lines() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = load("pipes.txt");
     assert_eq!(p.personal.first_name, "Priya");
     assert_eq!(
@@ -143,6 +145,7 @@ fn one_field_per_line_without_bullet_markers() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = load("multiline.txt");
     assert_eq!(p.personal.headline, "Data Analyst");
     assert_eq!(p.experiences.len(), 2);
@@ -178,6 +181,7 @@ fn student_with_projects_and_coursework() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = load("student.txt");
     let edu = &p.educations[0];
     assert_eq!(
@@ -228,6 +232,7 @@ fn caps_and_letter_spaced_headings() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = load("caps.txt");
     assert_eq!(
         (
@@ -355,6 +360,7 @@ fn pdf_link_annotations() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = file("links.pdf");
     assert_eq!(p.personal.email, "riley.chen@example.com");
     assert_eq!(
@@ -418,6 +424,7 @@ fn latex_small_caps_and_links() {
     let Parsed {
         profile: p,
         unsorted,
+        ..
     } = parse(&text, &links);
     if std::env::var("SHOW_PARSE").is_ok() {
         eprintln!("{p:#?}\nunsorted: {unsorted:#?}");
@@ -517,4 +524,93 @@ fn latex_small_caps_and_links() {
     assert_eq!(skill("Power BI"), Some("Technologies"));
     assert_eq!(skill("Leaflet"), Some("Data Visualization Tools"));
     assert!(unsorted.is_empty(), "{unsorted:?}");
+}
+
+/// What the parser changed is recorded by field, with undo where the file's
+/// own text is worth putting back.
+#[test]
+fn recorded_changes() {
+    use yob_core::profile::resume_content::ChangeKind;
+    let path = format!(
+        "{}/tests/data/resumes/smallcaps.txt",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let parsed = parse(&std::fs::read_to_string(path).unwrap(), &[]);
+    let find = |field: &str| {
+        parsed
+            .changes
+            .iter()
+            .find(|c| c.field == field)
+            .unwrap_or_else(|| panic!("no change for {field}: {:#?}", parsed.changes))
+    };
+    let degree = find("educations.0.degree");
+    assert_eq!(degree.kind, ChangeKind::DegreeSplit);
+    assert_eq!(
+        degree.before,
+        "BACHELOR OF SCIENCE IN INFORMATION SYSTEMS, MINOR STATISTICS"
+    );
+    // Undo puts the whole line back and clears what was split out of it.
+    let undo: Vec<(&str, &str)> = degree
+        .undo
+        .iter()
+        .map(|u| (u.field.as_str(), u.value.as_str()))
+        .collect();
+    assert_eq!(
+        undo,
+        [
+            ("educations.0.degree", degree.before.as_str()),
+            ("educations.0.field_of_study", ""),
+            ("educations.0.minor", "")
+        ]
+    );
+    assert_eq!(find("experiences.0.title").kind, ChangeKind::Capitals);
+    assert_eq!(find("experiences.0.title").before, "DATA ANALYST INTERN");
+    assert_eq!(find("projects.0.name").kind, ChangeKind::LinkLabel);
+    assert_eq!(find("educations.0.end").kind, ChangeKind::ClassOfMay);
+    assert_eq!(find("header.links.0.url").kind, ChangeKind::IconLink);
+    // A word hyphenated across lines is matched to its own bullet only.
+    let joined: Vec<&str> = parsed
+        .changes
+        .iter()
+        .filter(|c| c.kind == ChangeKind::JoinedWord)
+        .map(|c| c.field.as_str())
+        .collect();
+    assert_eq!(
+        joined,
+        ["experiences.0.bullets.0", "experiences.0.bullets.1"]
+    );
+    // Small caps inside the degree line are covered by the split, not listed twice.
+    assert!(
+        !parsed
+            .changes
+            .iter()
+            .any(|c| c.kind == ChangeKind::SmallCaps)
+    );
+    // Section order follows the file.
+    use yob_core::profile::resume_content::SectionKind as S;
+    assert_eq!(
+        parsed.sections,
+        [S::Education, S::Experience, S::Projects, S::Skills]
+    );
+}
+
+#[test]
+fn links_from_the_file_are_recorded() {
+    use yob_core::profile::resume_content::ChangeKind;
+    let Parsed { changes, .. } = file("links.pdf");
+    let from_file: Vec<&str> = changes
+        .iter()
+        .filter(|c| c.kind == ChangeKind::LinkFromFile)
+        .map(|c| c.field.as_str())
+        .collect();
+    assert_eq!(
+        from_file,
+        [
+            "projects.0.url",
+            "projects.1.url",
+            "header.links.0.url",
+            "header.links.1.url",
+            "header.links.2.url"
+        ]
+    );
 }

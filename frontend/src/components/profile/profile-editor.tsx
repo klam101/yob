@@ -1,9 +1,20 @@
 "use client";
 
-import { CheckCircle2, ChevronRight, CircleAlert, FileText, PencilLine, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronRight,
+  CircleAlert,
+  FileText,
+  PencilLine,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { Profile, ResumeDraft } from "@/api/client";
+import { useRouter } from "next/navigation";
+import type { Profile } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import {
@@ -16,9 +27,9 @@ import {
   skillsToText,
   textToSkills,
 } from "./editors";
-import { ResumeReview } from "./resume-review";
 import { ResumeUpload } from "./resume-upload";
-import { isEmpty, loadProfile, save } from "./save";
+import { IconButton } from "./fields";
+import { fillReviewed, isEmpty, loadProfile, save } from "./save";
 import { Section } from "./section";
 import { AnswersView, EducationView, ExperienceView, PersonalView, SkillsView } from "./views";
 
@@ -68,8 +79,8 @@ function useActiveSection() {
 }
 
 export function ProfileEditor({ initial }: { initial: Profile }) {
+  const router = useRouter();
   const [profile, setProfile] = useState(initial);
-  const [draft, setDraft] = useState<ResumeDraft | null>(null);
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState<SectionId | null>(null);
   const [active, setActive] = useActiveSection();
@@ -80,16 +91,6 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
     open: editing === id,
     onOpenChange: (o: boolean) => setEditing(o ? id : null),
   });
-
-  async function afterReview() {
-    setDraft(null);
-    const fresh = await loadProfile();
-    if (fresh) setProfile(fresh);
-  }
-
-  if (draft) {
-    return <ResumeReview draft={draft} current={profile} onSaved={afterReview} onCancel={() => setDraft(null)} />;
-  }
 
   if (isEmpty(profile) && !manual) {
     return (
@@ -102,9 +103,17 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
           </p>
         </div>
         <ResumeUpload
-          onParsed={(d) => {
-            setDraft(d);
-            window.scrollTo({ top: 0 });
+          onParsed={async (d) => {
+            // The first resume fills the profile by itself. If it can't (it
+            // was filled before and then emptied), the resume opens with
+            // "Update profile".
+            if (d.profile_filled) {
+              const fresh = await loadProfile();
+              if (fresh) setProfile(fresh);
+              window.scrollTo({ top: 0 });
+            } else {
+              router.push(`/resume/edit/${d.resume_id}?update=1`);
+            }
           }}
         />
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -130,6 +139,15 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
           <ShieldCheck className="size-4 shrink-0 text-success" />
           Your profile stays on this computer.
         </p>
+        {profile.filled_from && !profile.filled_from.reviewed && (
+          <FilledBanner
+            from={profile.filled_from}
+            onDismiss={() => {
+              void fillReviewed();
+              patch({ filled_from: profile.filled_from ? { ...profile.filled_from, reviewed: true } : null });
+            }}
+          />
+        )}
         <div className="rounded-3xl border border-border/70 bg-card shadow-soft">
           <nav
             aria-label="Profile sections"
@@ -302,6 +320,36 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
           </Link>
         </nav>
       </aside>
+    </div>
+  );
+}
+
+/** After the first resume filled the profile: where it came from, and what to check. */
+function FilledBanner({ from, onDismiss }: { from: NonNullable<Profile["filled_from"]>; onDismiss: () => void }) {
+  return (
+    <div role="status" className="flex items-start gap-3 rounded-3xl border border-primary/25 bg-primary/8 p-4 sm:p-5">
+      <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1 space-y-1 text-sm">
+        <p>
+          Filled from <span className="font-semibold">{from.name}</span>. Check what we read before you use it.
+        </p>
+        {from.skipped.length > 0 && (
+          <p className="text-muted-foreground">
+            Not filled, because what we read didn&apos;t look right: {from.skipped.join(", ")}. Add them below.
+          </p>
+        )}
+        {from.resume_id && (
+          <Link href={`/resume/edit/${from.resume_id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+            {from.open_changes > 0
+              ? `${from.open_changes} ${from.open_changes === 1 ? "thing" : "things"} the parser changed`
+              : "See the resume"}
+            <ChevronRight className="size-4" />
+          </Link>
+        )}
+      </div>
+      <IconButton label="Dismiss" onClick={onDismiss}>
+        <X />
+      </IconButton>
     </div>
   );
 }

@@ -1,12 +1,24 @@
 "use client";
 
-import { Download, Ellipsis, FilePlus2, FileText, Loader2, PencilLine, RefreshCcw, Sparkles, Star, Trash2 } from "lucide-react";
+import {
+  Download,
+  Ellipsis,
+  FilePlus2,
+  FileText,
+  Loader2,
+  PencilLine,
+  RefreshCcw,
+  Sparkles,
+  Star,
+  Trash2,
+  UserRoundPen,
+} from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { Profile, ResumeDraft, ResumeInfo } from "@/api/client";
+import type { Profile, ResumeDetail, ResumeInfo, ResumeUploaded } from "@/api/client";
 import { ProjectEditor } from "@/components/profile/editors";
 import { FieldScope, TextField } from "@/components/profile/fields";
-import { ResumeReview } from "@/components/profile/resume-review";
 import { ResumeUpload } from "@/components/profile/resume-upload";
 import { resumes as resumeApi, save } from "@/components/profile/save";
 import { Section } from "@/components/profile/section";
@@ -29,23 +41,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { timeAgo } from "@/lib/format";
+import { UpdateProfileDialog } from "./update-profile-dialog";
 
 type Dialogs =
   | { kind: "add" }
   | { kind: "edit"; resume: ResumeInfo }
   | { kind: "delete"; resume: ResumeInfo }
+  | { kind: "update"; resume: ResumeInfo }
   | null;
 
 /**
- * The Resume page: uploaded resumes (with a primary one), the projects that
- * tailored resumes draw from, and filling the profile from a resume.
+ * The Resume page: uploaded resumes (with a primary one) and the projects
+ * tailored resumes draw from. A resume opens on its edit page; "Update
+ * profile" copies chosen sections of it into the profile.
  */
 export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; profile: Profile }) {
   const router = useRouter();
   const [list, setList] = useState(initial);
   const [projects, setProjects] = useState(profile.projects);
   const [dialog, setDialog] = useState<Dialogs>(null);
-  const [draft, setDraft] = useState<ResumeDraft | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
   const [editingProjects, setEditingProjects] = useState(false);
@@ -62,27 +76,6 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
     if (!res.ok) return setNotice({ tone: "error", text: res.message });
     await refresh();
     setNotice({ tone: "ok", text: `${res.value.name} is now your primary resume.` });
-  }
-
-  async function fillProfile(r: ResumeInfo) {
-    setBusy(r.id);
-    setNotice(null);
-    const res = await resumeApi.draft(r.id);
-    setBusy(null);
-    if (!res.ok) return setNotice({ tone: "error", text: res.message });
-    setDraft(res.value);
-    window.scrollTo({ top: 0 });
-  }
-
-  if (draft) {
-    return (
-      <ResumeReview
-        draft={draft}
-        current={{ ...profile, projects }}
-        onSaved={() => router.push("/profile")}
-        onCancel={() => setDraft(null)}
-      />
-    );
   }
 
   return (
@@ -152,11 +145,20 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
               </thead>
               <tbody className="divide-y divide-border/60">
                 {list.map((r) => (
-                  <tr key={r.id} className="flex flex-wrap items-center gap-x-3 px-5 py-4 sm:table-row sm:px-0 sm:py-0">
+                  <tr
+                    key={r.id}
+                    className="relative flex flex-wrap items-center gap-x-3 px-5 py-4 transition-colors hover:bg-muted/40 sm:table-row sm:px-0 sm:py-0"
+                  >
                     <td className="min-w-0 flex-1 sm:px-5 sm:py-4">
                       <div className="flex min-w-0 items-center gap-2">
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate font-medium">{r.name}</span>
+                        {/* The whole row opens the resume. */}
+                        <Link
+                          href={`/resume/edit/${r.id}`}
+                          className="truncate font-medium outline-none after:absolute after:inset-0 after:rounded-none hover:underline focus-visible:underline"
+                        >
+                          {r.name}
+                        </Link>
                         {r.is_primary && (
                           <Badge variant="success" size="sm">
                             <Star className="fill-current" /> Primary
@@ -174,7 +176,7 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
                     <td className="hidden px-3 py-4 text-muted-foreground sm:table-cell" suppressHydrationWarning>
                       {timeAgo(r.uploaded_at)}
                     </td>
-                    <td className="sm:px-3 sm:py-4">
+                    <td className="relative z-10 sm:px-3 sm:py-4">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${r.name}`} disabled={busy === r.id}>
@@ -186,10 +188,10 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
                             <Star /> Use as primary
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => setDialog({ kind: "edit", resume: r })}>
-                            <PencilLine /> Edit details
+                            <PencilLine /> Edit info
                           </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => fillProfile(r)}>
-                            <RefreshCcw /> Fill profile from this resume
+                          <DropdownMenuItem onSelect={() => setDialog({ kind: "update", resume: r })}>
+                            <UserRoundPen /> Update profile
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                             <a href={`/api/profile/resumes/${r.id}/file`} download>
@@ -246,21 +248,34 @@ export function ResumeManager({ initial, profile }: { initial: ResumeInfo[]; pro
       <AddResumeDialog
         open={dialog?.kind === "add"}
         onClose={() => setDialog(null)}
-        onParsed={async (d) => {
+        onParsed={(d) => {
           setDialog(null);
-          await refresh();
-          setDraft(d);
-          window.scrollTo({ top: 0 });
+          // The first resume fills the profile by itself. Later ones open
+          // with "Update profile", which asks which sections to use.
+          router.push(d.profile_filled ? `/resume/edit/${d.resume_id}` : `/resume/edit/${d.resume_id}?update=1`);
         }}
       />
+      {dialog?.kind === "update" && (
+        <UpdateProfileDialog
+          resumeId={dialog.resume.id}
+          name={dialog.resume.name}
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+        />
+      )}
       {dialog?.kind === "edit" && (
         <EditDetailsDialog
           resume={dialog.resume}
           onClose={() => setDialog(null)}
-          onSaved={async (name) => {
+          onSaved={async (updated) => {
             setDialog(null);
             await refresh();
-            setNotice({ tone: "ok", text: `Saved ${name}.` });
+            setNotice({ tone: "ok", text: `Saved ${updated.name}.` });
+          }}
+          onReparsed={async () => {
+            setDialog(null);
+            await refresh();
+            setNotice({ tone: "ok", text: "Read the file again." });
           }}
         />
       )}
@@ -287,7 +302,7 @@ function AddResumeDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onParsed: (d: ResumeDraft) => void;
+  onParsed: (d: ResumeUploaded) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -295,7 +310,9 @@ function AddResumeDialog({
         <DialogHeader>
           <DialogTitle>Add a resume</DialogTitle>
           <DialogDescription>
-            We&apos;ll read it on this computer and show you what we found before anything goes into your profile.
+            We&apos;ll read it on this computer and open it, so you can check what we read. Your profile changes
+            only when you choose &ldquo;Update profile&rdquo;, except for your first resume, which fills an empty
+            profile.
           </DialogDescription>
         </DialogHeader>
         <ResumeUpload onParsed={onParsed} />
@@ -304,19 +321,32 @@ function AddResumeDialog({
   );
 }
 
-function EditDetailsDialog({
+export function EditDetailsDialog({
   resume,
   onClose,
   onSaved,
+  onReparsed,
 }: {
   resume: ResumeInfo;
   onClose: () => void;
-  onSaved: (name: string) => void;
+  onSaved: (updated: ResumeInfo) => void;
+  /** After "Read the file again" replaced the resume's content. */
+  onReparsed: (fresh: ResumeDetail) => void;
 }) {
   const [name, setName] = useState(resume.name);
   const [title, setTitle] = useState(resume.target_title);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ message: string; field?: string | null } | null>(null);
+  const [confirmReparse, setConfirmReparse] = useState(false);
+
+  async function reparse() {
+    setSaving(true);
+    setError(null);
+    const r = await resumeApi.reparse(resume.id);
+    setSaving(false);
+    if (r.ok) onReparsed(r.value);
+    else setError(r);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -324,7 +354,7 @@ function EditDetailsDialog({
     setError(null);
     const r = await resumeApi.update(resume.id, { name, target_title: title, primary: null });
     setSaving(false);
-    if (r.ok) onSaved(r.value.name);
+    if (r.ok) onSaved(r.value);
     else setError(r);
   }
 
@@ -333,8 +363,8 @@ function EditDetailsDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Edit resume details</DialogTitle>
-            <DialogDescription>Only how it&apos;s listed here. The file itself doesn&apos;t change.</DialogDescription>
+            <DialogTitle>Edit resume info</DialogTitle>
+            <DialogDescription>How it&apos;s listed. The file itself doesn&apos;t change.</DialogDescription>
           </DialogHeader>
           <FieldScope path="" error={error?.field ? { field: error.field, message: error.message } : null}>
             <TextField label="Name" name="name" required value={name} onChange={setName} />
@@ -352,6 +382,27 @@ function EditDetailsDialog({
               {error.message}
             </p>
           )}
+          <div className="space-y-2 rounded-2xl bg-muted/60 p-3 text-sm">
+            <p className="font-medium">Read the file again</p>
+            <p className="text-xs text-muted-foreground">
+              Replaces this resume&apos;s content with a fresh read of {resume.filename}, including any edits you made
+              to it. Your profile isn&apos;t changed.
+            </p>
+            {confirmReparse ? (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="destructive" onClick={reparse} disabled={saving}>
+                  <RefreshCcw /> Replace with a fresh read
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmReparse(false)} disabled={saving}>
+                  Keep my edits
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" size="sm" variant="bordered" onClick={() => setConfirmReparse(true)} disabled={saving}>
+                <RefreshCcw /> Read the file again
+              </Button>
+            )}
+          </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
               Cancel
@@ -366,7 +417,7 @@ function EditDetailsDialog({
   );
 }
 
-function DeleteDialog({
+export function DeleteDialog({
   resume,
   onClose,
   onDeleted,

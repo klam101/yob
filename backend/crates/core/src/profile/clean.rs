@@ -17,12 +17,39 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Runs every fix, in order.
 pub fn clean(text: &str) -> String {
+    clean_with_report(text).0
+}
+
+/// A fix worth showing the user: it changed what a word says, not just how
+/// it's encoded. Ligatures, hyphen look-alikes and stray icons aren't
+/// reported; nothing about them needs checking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fix {
+    pub kind: FixKind,
+    /// The words (or address) as they read after the fix, to find the
+    /// fields that contain them.
+    pub words: Vec<String>,
+    /// What the file had, readable ("deliv- / ering", "QUALiTY").
+    pub before: String,
+    pub after: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixKind {
+    SmallCaps,
+    JoinedWord,
+    IconLink,
+}
+
+/// `clean`, plus the fixes worth showing.
+pub fn clean_with_report(text: &str) -> (String, Vec<Fix>) {
+    let mut fixes = Vec::new();
     let text = compatibility(text);
     let text = hyphens(&text);
-    let text = icons(&text);
-    let text = small_caps(&text);
-    let text = line_break_hyphens(&text);
-    trailing_space(&text)
+    let text = icons_reported(&text, &mut fixes);
+    let text = small_caps_reported(&text, &mut fixes);
+    let text = line_break_hyphens_reported(&text, &mut fixes);
+    (trailing_space(&text), fixes)
 }
 
 /// NFKC: ligatures and full-width forms become plain letters ("ﬁ" -> "fi").
@@ -95,7 +122,12 @@ pub const LINK_LABELS: &[&str] = &[
 /// bare user name ("\u{F092} jdoe") becomes that account's address, which
 /// is what the icon means. A Symbol-font bullet at the start of a line
 /// becomes "•".
+#[cfg(test)]
 fn icons(text: &str) -> String {
+    icons_reported(text, &mut Vec::new())
+}
+
+fn icons_reported(text: &str, fixes: &mut Vec<Fix>) -> String {
     let mut out = String::with_capacity(text.len());
     for (n, line) in text.split('\n').enumerate() {
         if n > 0 {
@@ -120,9 +152,19 @@ fn icons(text: &str) -> String {
                     .chars()
                     .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
                 && !LINK_LABELS.contains(&handle.to_lowercase().as_str());
+            let mut link = |site: &str, prefix: &str| {
+                let address = format!("{prefix}{handle}");
+                fixes.push(Fix {
+                    kind: FixKind::IconLink,
+                    words: vec![address.clone()],
+                    before: format!("{site} icon, then \"{handle}\""),
+                    after: address,
+                });
+                out.push_str(prefix);
+            };
             match kind {
-                Icon::Github if is_handle => out.push_str("github.com/"),
-                Icon::Linkedin if is_handle => out.push_str("linkedin.com/in/"),
+                Icon::Github if is_handle => link("GitHub", "github.com/"),
+                Icon::Linkedin if is_handle => link("LinkedIn", "linkedin.com/in/"),
                 Icon::Bullet if at_start => out.push('•'),
                 _ if at_start
                     && !rest.is_empty()
@@ -178,22 +220,43 @@ fn clearly_small_caps(w: &str) -> bool {
 
 /// Upper-cases small-caps words, but only on lines with an unmistakable one
 /// ("QUALiTY"), so "iOS" in a normal sentence is left alone.
+#[cfg(test)]
 fn small_caps(text: &str) -> String {
+    small_caps_reported(text, &mut Vec::new())
+}
+
+fn small_caps_reported(text: &str, fixes: &mut Vec<Fix>) -> String {
     text.split('\n')
         .map(|line| {
             if !line.split_whitespace().any(clearly_small_caps) {
                 return line.to_owned();
             }
-            line.split(' ')
+            let mut fixed: Vec<(String, String)> = Vec::new();
+            let out = line
+                .split(' ')
                 .map(|w| {
-                    if small_caps_word(w) {
-                        w.to_uppercase()
+                    if small_caps_word(w) && w.contains('i') {
+                        let up = w.to_uppercase();
+                        fixed.push((w.to_owned(), up.clone()));
+                        up
                     } else {
                         w.to_owned()
                     }
                 })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(" ");
+            if !fixed.is_empty() {
+                let join = |f: fn(&(String, String)) -> &str| {
+                    fixed.iter().map(f).collect::<Vec<_>>().join(" ")
+                };
+                fixes.push(Fix {
+                    kind: FixKind::SmallCaps,
+                    words: fixed.iter().map(|(_, up)| up.clone()).collect(),
+                    before: join(|p| p.0.as_str()),
+                    after: join(|p| p.1.as_str()),
+                });
+            }
+            out
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -212,7 +275,12 @@ const COMPOUND_PREFIXES: &[&str] = &[
 /// Only when the next line starts in lowercase, so "Jan 2024 -" / "Present"
 /// stays apart. The whole next line is joined on, as it continues the same
 /// sentence. After a compound prefix the hyphen is kept ("full-" + "stack").
+#[cfg(test)]
 fn line_break_hyphens(text: &str) -> String {
+    line_break_hyphens_reported(text, &mut Vec::new())
+}
+
+fn line_break_hyphens_reported(text: &str, fixes: &mut Vec<Fix>) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut join = false;
     for line in text.split('\n') {
@@ -229,7 +297,18 @@ fn line_break_hyphens(text: &str) -> String {
             let token = prev.rsplit(char::is_whitespace).next().unwrap_or("");
             let in_link = token.contains('/') || token.contains('@');
             if !COMPOUND_PREFIXES.contains(&word) && !in_link {
+                let head = word.to_owned();
+                let tail: String = next.chars().take_while(|c| c.is_alphanumeric()).collect();
+                // The joined word with a few words after it, so the fix is
+                // matched to the one bullet it came from.
+                let context: String = next[tail.len()..].chars().take(30).collect();
                 prev.pop();
+                fixes.push(Fix {
+                    kind: FixKind::JoinedWord,
+                    words: vec![format!("{head}{tail}{context}").trim_end().to_owned()],
+                    before: format!("{head}- / {tail}"),
+                    after: format!("{head}{tail}"),
+                });
             }
             prev.push_str(next);
         } else {

@@ -2,7 +2,7 @@
 
 import { FileUp, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
-import type { ResumeDraft } from "@/api/client";
+import type { ResumeUploaded } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import { uploadResume } from "./save";
@@ -12,7 +12,7 @@ export function ResumeUpload({
   onParsed,
   compact = false,
 }: {
-  onParsed: (draft: ResumeDraft) => void;
+  onParsed: (uploaded: ResumeUploaded) => void;
   compact?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);

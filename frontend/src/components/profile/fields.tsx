@@ -51,8 +51,14 @@ export function FieldScope({
   return <Scope.Provider value={{ path: full, error: error === undefined ? outer.error : error }}>{children}</Scope.Provider>;
 }
 
+/** The full path of a field named `name` in the current scope. */
+export function useFieldPath(name?: string) {
+  const { path } = useContext(Scope);
+  return name ? [path, name].filter(Boolean).join(".") : path;
+}
+
 /** The message for this field (`name` inside the current scope), if any. */
-function useFieldError(name?: string) {
+export function useFieldError(name?: string) {
   const { path, error } = useContext(Scope);
   if (!name || !error) return undefined;
   const full = [path, name].filter(Boolean).join(".");
@@ -101,7 +107,7 @@ export function Field({
   );
 }
 
-const invalidClass = "border-destructive/60 focus-visible:border-destructive focus-visible:ring-destructive/20";
+export const invalidClass = "border-destructive/60 focus-visible:border-destructive focus-visible:ring-destructive/20";
 
 export function TextField({
   label,
@@ -217,7 +223,7 @@ export function MonthField({
 }
 
 /** A textarea that grows with its text. */
-function GrowingTextarea({
+export function GrowingTextarea({
   className,
   value,
   boxRef,
@@ -256,13 +262,20 @@ export function BulletList({
   name = "bullets",
   value,
   onChange,
+  onShift,
 }: {
   label?: string;
   name?: string;
   value: string[];
   onChange: (v: string[]) => void;
+  /**
+   * Bullets were inserted (`by` > 0) or one removed (`by` = -1) at `at`,
+   * so anything that points at bullets by index can follow.
+   */
+  onShift?: (at: number, by: number) => void;
 }) {
   const error = useFieldError(name);
+  const base = useFieldPath(name);
   const labelId = useId();
   const boxes = useRef<(HTMLTextAreaElement | null)[]>([]);
   // Which box to focus after the list changes, and where to put the cursor.
@@ -295,11 +308,13 @@ export function BulletList({
     setKeys(k);
     setNextKey(nextKey + items.length);
     focusNext.current = { index: focus, at: "end" };
+    onShift?.(at, items.length);
     onChange(next);
   };
   const remove = (i: number, focus: number | null) => {
     setKeys(keys.filter((_, j) => j !== i));
     if (focus !== null) focusNext.current = { index: focus, at: "end" };
+    onShift?.(i, -1);
     onChange(value.filter((_, j) => j !== i));
   };
   const set = (i: number, text: string) => onChange(value.map((b, j) => (j === i ? text : b)));
@@ -312,7 +327,7 @@ export function BulletList({
       {value.length > 0 && (
         <ol className="space-y-2">
           {value.map((b, i) => (
-            <li key={keys[i]} className="flex items-start gap-2">
+            <li key={keys[i]} className="flex items-start gap-2" data-field={`${base}.${i}`}>
               <span aria-hidden className="mt-4 size-1.5 shrink-0 rounded-full bg-foreground/50" />
               <GrowingTextarea
                 boxRef={(el) => {

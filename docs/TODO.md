@@ -101,7 +101,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 ### 4. Resume and profile
 - [x] Profile tables, one per section (`experiences`, `educations`, `projects`, `skills`, ...); each section saves as a whole, in order
 - [x] Resume upload (PDF, DOCX) to local file storage (`./data/files`), checked by content
-- [x] Rule-based resume parser (no AI) into a draft; review screen with per-section "Save this" and unplaced text
+- [x] Rule-based resume parser (no AI) into a draft, with unplaced text listed
 - [x] Profile page: start card (upload or manual), tabs Personal, Experience, Education, Projects, Skills, Application answers; checklist; download uploaded resumes
 - [x] Equal-employment answers encrypted with AES-256-GCM (`PROFILE_ENCRYPTION_KEY`, added to `.env` automatically)
 - [x] Try the parser on your real resume and add a fixture (fictional, same layout) for anything it misreads (`smallcaps.txt`, `links.pdf`)
@@ -112,7 +112,12 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Experience and education sorted newest first on save; overlapping jobs get a note, not an error
 - [x] Resume page (`/resume`, was Documents): resumes list with a primary one, rename and target title, fill profile from a resume, download, delete; projects live here
 - [x] `./scripts/dev.sh parse-resume <file>` to see what the parser makes of a file
+- [x] Resume page per resume (now `/resume/edit/{id}`): its own content edited in place with autosave; what the parser changed with Keep/Undo; fix capitals; coursework chips; section order per resume
+- [x] The first resume fills an empty profile automatically, once; later resumes ask before updating it
+- [x] One resume page: `/resume/edit/{id}` laid out like Jobright's; "Update profile" is a dialog with section checkboxes (the separate review screen is gone)
 - [ ] Two-column PDF layouts (sidebar resumes): text extraction interleaves the columns
+- [ ] Export a resume (PDF/DOCX from its content), with Stage 6 rendering
+- [ ] "Analyze" a resume against a job: keyword gap (Stages 5–6)
 - [ ] Optional "Improve with AI" pass over the draft with `qwen3:8b` once Ollama is set up
 - [ ] Back up `PROFILE_ENCRYPTION_KEY`: without it, saved equal-employment answers can't be read
 
