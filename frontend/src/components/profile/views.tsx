@@ -77,13 +77,28 @@ export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }
 }
 
 function Timeline({ children }: { children: React.ReactNode }) {
-  return <ol className="space-y-5 border-l-2 border-primary/20 pl-5">{children}</ol>;
+  return <ol>{children}</ol>;
 }
 
+/**
+ * One entry on the timeline: a ring at the date, and a line from it down to
+ * the next entry's ring. The line runs through the rings' centers (both are
+ * centered 6px from the left) and stops 2px short of each ring, so it never
+ * pokes through; the last entry's fades out below it.
+ */
 function TimelineItem({ when, children }: { when: string; children: React.ReactNode }) {
   return (
-    <li className="relative space-y-1">
-      <span className="absolute top-1 -left-[1.6rem] size-3 rounded-full border-2 border-primary bg-background" />
+    // The gap to the next entry is this item's own bottom padding, so the
+    // line can end just above the next ring: that ring's top is 4px into the
+    // next item, and the line stops 2px short of it.
+    <li className="group/item relative space-y-1 pb-6 pl-7 last:pb-0">
+      {/* m-0: `space-y-1` would give these a bottom margin and cut the line short. */}
+      <span aria-hidden className="absolute top-1 left-0 m-0 size-3 rounded-full border-2 border-primary bg-background" />
+      <span
+        aria-hidden
+        // The last entry's line runs down beside it and fades out.
+        className="absolute top-4.5 -bottom-0.5 left-1.25 m-0 w-0.5 rounded-full bg-primary/20 group-last/item:bottom-0 group-last/item:bg-transparent group-last/item:bg-linear-to-b group-last/item:from-primary/20 group-last/item:to-transparent"
+      />
       {when && <p className="text-xs text-muted-foreground">{when}</p>}
       {children}
     </li>

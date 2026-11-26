@@ -13,8 +13,7 @@ export default function ProfilePage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Profile</h1>
         <p className="text-muted-foreground">
-          The facts your tailored resumes, cover letters and autofill are built from. Only what you enter here is
-          used, never anything made up.
+          The facts your tailored resumes, cover letters and autofill are built from. Only what you enter here is used, never anything made up.
         </p>
       </header>
       <Suspense fallback={<Skeleton className="h-[32rem] rounded-3xl" />}>
