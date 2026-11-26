@@ -1,19 +1,43 @@
 //! Read queries for the API: the feed, one job, companies. Filters are built
 //! with bound parameters only; nothing from the request is spliced into SQL.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 // `AssertSqlSafe` below only ever wraps our own constant SQL fragments joined
 // together (SELECT_JOB, STALE_SQL, SELECT_COMPANY); request data is always bound.
 use sqlx::{AssertSqlSafe, PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
-use super::model::{EmploymentType, Platform, Seniority, Source, Workplace};
+use super::model::{
+    ApplyProcess, EmploymentType, Platform, SalaryPeriod, Seniority, Source, Workplace,
+};
 use super::search::{self, Place};
 
 /// "Possibly stale": open more than 60 days (by the earlier of the company's
 /// posted date and when we first saw it) or reposted more than twice.
 const STALE_SQL: &str =
     "(LEAST(j.posted_at, j.first_seen_at) < now() - interval '60 days' OR j.repost_count > 2)";
+
+/// Company names of staffing and recruiting agencies (on top of jobs whose
+/// text says so, the `staffing` tag).
+const STAFFING_NAMES: &str = r"staffing|recruit(ing|ment|ers)\M|talent (solutions|partners|group)|personnel|employment (agency|services|solutions)|workforce solutions|manpower|kforce|robert half|randstad|adecco|aerotek|teksystems|insight global|kelly services|express employment|apex systems|cybercoders|motion recruitment|jobot|mercor|micro1";
+
+/// Jobs with any of `tags`, or, when `or_without` is set, none of
+/// `or_without` ("No clearance mentioned").
+#[derive(Debug, Default, Clone)]
+pub struct AnyTags {
+    pub tags: Vec<String>,
+    pub or_without: Vec<String>,
+}
+
+/// Which states of one degree level a job may be in.
+#[derive(Debug, Default, Clone)]
+pub struct EduRule {
+    /// associate, bachelors, masters or doctorate.
+    pub level: String,
+    pub required: bool,
+    pub preferred: bool,
+    pub not_mentioned: bool,
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct JobFilter {
@@ -33,6 +57,16 @@ pub struct JobFilter {
     /// Where the job came from: the employer's platform, or a job board.
     pub source: Vec<Source>,
     pub posted_after: Option<DateTime<Utc>>,
+    /// Posted on or after this day (a custom range).
+    pub posted_from: Option<NaiveDate>,
+    /// Posted on or before this day (a custom range).
+    pub posted_to: Option<NaiveDate>,
+    /// Simple forms, or ones that need an account; see [`ApplyProcess`].
+    pub apply: Vec<ApplyProcess>,
+    /// Only jobs whose listed pay is per this period.
+    pub pay_period: Option<SalaryPeriod>,
+    /// Only jobs that list a salary.
+    pub salary_listed: bool,
     /// Minimum yearly salary.
     pub salary_min: Option<i32>,
     /// With `salary_min`, keep jobs that don't list a salary.
@@ -46,6 +80,35 @@ pub struct JobFilter {
     pub hide_no_sponsorship: bool,
     /// Hide jobs open only to U.S. citizens or clearance holders.
     pub hide_citizens_only: bool,
+    /// Job function slugs (`jobs::functions`).
+    pub functions: Vec<String>,
+    /// Years of experience asked for, within this range.
+    pub years_min: Option<i16>,
+    pub years_max: Option<i16>,
+    /// With a years range, keep jobs that don't say.
+    pub years_unlisted: bool,
+    /// Each group must match (see [`AnyTags`]).
+    pub tags_any: Vec<AnyTags>,
+    /// Jobs with all of these tags.
+    pub tags_all: Vec<String>,
+    /// Jobs with none of these tags.
+    pub tags_none: Vec<String>,
+    pub edu: Vec<EduRule>,
+    /// Hide staffing and recruiting agencies.
+    pub hide_staffing: bool,
+    /// Company facts (from Wikidata): industries, any of them.
+    pub industries: Vec<String>,
+    pub exclude_industries: Vec<String>,
+    /// public, private, nonprofit, government, cooperative.
+    pub org_types: Vec<String>,
+    pub exclude_org_types: Vec<String>,
+    /// Headcount ranges, any of them (inclusive).
+    pub sizes: Vec<(i32, i32)>,
+    pub founded_min: Option<i16>,
+    pub founded_max: Option<i16>,
+    /// Headquarters countries, any of them.
+    pub hq_countries: Vec<String>,
+    pub exclude_hq_countries: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -175,6 +238,35 @@ fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
     if let Some(after) = f.posted_after {
         qb.push(" AND j.posted_at >= ").push_bind(after);
     }
+    if let Some(from) = f.posted_from {
+        qb.push(" AND j.posted_at >= ")
+            .push_bind(from)
+            .push("::date");
+    }
+    if let Some(to) = f.posted_to {
+        // Through the end of that day.
+        qb.push(" AND j.posted_at < ")
+            .push_bind(to)
+            .push("::date + 1");
+    }
+    if !f.apply.is_empty() {
+        let sources: Vec<String> = f
+            .apply
+            .iter()
+            .flat_map(|a| a.sources())
+            .map(|s| s.as_str().to_owned())
+            .collect();
+        qb.push(" AND COALESCE(j.feed, c.platform) = ANY(")
+            .push_bind(sources)
+            .push(")");
+    }
+    if let Some(period) = f.pay_period {
+        qb.push(" AND j.salary_period = ")
+            .push_bind(period.as_str());
+    }
+    if f.salary_listed {
+        qb.push(" AND j.salary_annual_max IS NOT NULL");
+    }
     if let Some(min) = f.salary_min {
         qb.push(" AND (j.salary_annual_max >= ").push_bind(min);
         if f.include_unlisted_salary {
@@ -184,6 +276,108 @@ fn push_where(qb: &mut QueryBuilder<Postgres>, f: &JobFilter) {
     }
     if f.hide_stale {
         qb.push(" AND NOT ").push(STALE_SQL);
+    }
+    if !f.functions.is_empty() {
+        qb.push(" AND j.job_function = ANY(")
+            .push_bind(f.functions.clone())
+            .push(")");
+    }
+    if f.years_min.is_some() || f.years_max.is_some() {
+        qb.push(" AND (j.min_years BETWEEN ")
+            .push_bind(f.years_min.unwrap_or(0))
+            .push(" AND ")
+            .push_bind(f.years_max.unwrap_or(i16::MAX));
+        if f.years_unlisted {
+            qb.push(" OR j.min_years IS NULL");
+        }
+        qb.push(")");
+    }
+    for group in &f.tags_any {
+        qb.push(" AND (false");
+        if !group.tags.is_empty() {
+            qb.push(" OR j.tags && ").push_bind(group.tags.clone());
+        }
+        if !group.or_without.is_empty() {
+            qb.push(" OR NOT j.tags && ")
+                .push_bind(group.or_without.clone());
+        }
+        qb.push(")");
+    }
+    if !f.tags_all.is_empty() {
+        qb.push(" AND j.tags @> ").push_bind(f.tags_all.clone());
+    }
+    if !f.tags_none.is_empty() {
+        qb.push(" AND NOT j.tags && ")
+            .push_bind(f.tags_none.clone());
+    }
+    for rule in &f.edu {
+        let required = vec![format!("edu:{}:required", rule.level)];
+        let preferred = vec![format!("edu:{}:preferred", rule.level)];
+        qb.push(" AND (false");
+        if rule.required {
+            qb.push(" OR j.tags @> ").push_bind(required.clone());
+        }
+        if rule.preferred {
+            qb.push(" OR (j.tags @> ")
+                .push_bind(preferred.clone())
+                .push(" AND NOT j.tags @> ")
+                .push_bind(required.clone())
+                .push(")");
+        }
+        if rule.not_mentioned {
+            qb.push(" OR NOT j.tags && ")
+                .push_bind([required, preferred].concat());
+        }
+        qb.push(")");
+    }
+    if !f.industries.is_empty() {
+        qb.push(" AND c.industries && ")
+            .push_bind(f.industries.clone());
+    }
+    if !f.exclude_industries.is_empty() {
+        qb.push(" AND NOT c.industries && ")
+            .push_bind(f.exclude_industries.clone());
+    }
+    if !f.org_types.is_empty() {
+        qb.push(" AND c.org_type = ANY(")
+            .push_bind(f.org_types.clone())
+            .push(")");
+    }
+    if !f.exclude_org_types.is_empty() {
+        // Companies without facts stay.
+        qb.push(" AND (c.org_type IS NULL OR c.org_type <> ALL(")
+            .push_bind(f.exclude_org_types.clone())
+            .push("))");
+    }
+    if !f.sizes.is_empty() {
+        qb.push(" AND (false");
+        for (lo, hi) in &f.sizes {
+            qb.push(" OR c.employees BETWEEN ")
+                .push_bind(*lo)
+                .push(" AND ")
+                .push_bind(*hi);
+        }
+        qb.push(")");
+    }
+    if f.founded_min.is_some() || f.founded_max.is_some() {
+        qb.push(" AND c.founded BETWEEN ")
+            .push_bind(f.founded_min.unwrap_or(0))
+            .push(" AND ")
+            .push_bind(f.founded_max.unwrap_or(i16::MAX));
+    }
+    if !f.hq_countries.is_empty() {
+        qb.push(" AND c.hq_country = ANY(")
+            .push_bind(f.hq_countries.clone())
+            .push(")");
+    }
+    if !f.exclude_hq_countries.is_empty() {
+        qb.push(" AND (c.hq_country IS NULL OR c.hq_country <> ALL(")
+            .push_bind(f.exclude_hq_countries.clone())
+            .push("))");
+    }
+    if f.hide_staffing {
+        qb.push(" AND NOT j.tags @> '{staffing}' AND c.name !~* ")
+            .push_bind(STAFFING_NAMES);
     }
 }
 
@@ -387,6 +581,66 @@ pub async fn facets(pool: &PgPool) -> sqlx::Result<(Vec<Count>, Vec<Count>)> {
     .fetch_all(pool)
     .await?;
     Ok((departments, companies))
+}
+
+/// Industries and headquarters countries of companies with open jobs (by
+/// open jobs), and how many of those companies have Wikidata facts.
+pub struct CompanyFactCounts {
+    pub industries: Vec<Count>,
+    pub countries: Vec<Count>,
+    pub known: i64,
+    pub total: i64,
+}
+
+pub async fn company_fact_counts(pool: &PgPool) -> sqlx::Result<CompanyFactCounts> {
+    let industries = sqlx::query_as(
+        "SELECT i AS value, count(*) AS count
+         FROM jobs j JOIN companies c ON c.id = j.company_id, unnest(c.industries) AS i
+         WHERE j.closed_at IS NULL AND j.in_scope
+         GROUP BY i ORDER BY count(*) DESC, i LIMIT 300",
+    )
+    .fetch_all(pool)
+    .await?;
+    let countries = sqlx::query_as(
+        "SELECT c.hq_country AS value, count(*) AS count
+         FROM jobs j JOIN companies c ON c.id = j.company_id
+         WHERE j.closed_at IS NULL AND j.in_scope AND c.hq_country IS NOT NULL
+         GROUP BY c.hq_country ORDER BY count(*) DESC, c.hq_country",
+    )
+    .fetch_all(pool)
+    .await?;
+    let (known, total): (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE c.wikidata_id IS NOT NULL), count(*)
+         FROM companies c
+         WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.company_id = c.id AND j.closed_at IS NULL AND j.in_scope)",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(CompanyFactCounts {
+        industries,
+        countries,
+        known,
+        total,
+    })
+}
+
+/// Open jobs per job function and per tag, for the filters' option lists.
+pub async fn detail_counts(pool: &PgPool) -> sqlx::Result<(Vec<Count>, Vec<Count>)> {
+    let functions = sqlx::query_as(
+        "SELECT job_function AS value, count(*) AS count FROM jobs
+         WHERE closed_at IS NULL AND in_scope AND job_function IS NOT NULL
+         GROUP BY job_function",
+    )
+    .fetch_all(pool)
+    .await?;
+    let tags = sqlx::query_as(
+        "SELECT t AS value, count(*) AS count FROM jobs, unnest(tags) AS t
+         WHERE closed_at IS NULL AND in_scope
+         GROUP BY t",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok((functions, tags))
 }
 
 /// Open-job counts for companies matching `q` (for the Company filter's

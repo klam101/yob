@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/vocabulary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job functions and detail tags with open-job counts (cached 30 minutes),
+         *     for the All filters dialog.
+         */
+        get: operations["vocabulary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{id}": {
         parameters: {
             query?: never;
@@ -953,6 +973,14 @@ export interface components {
             /** @description Sections left out because what was read didn't pass validation. */
             skipped: string[];
         };
+        /** @description A job function with its open-job count. */
+        FunctionCount: {
+            /** Format: int32 */
+            count: number;
+            group: string;
+            label: string;
+            value: string;
+        };
         Health: {
             database: boolean;
             /** @description Models yob needs that Ollama hasn't pulled (`./scripts/dev.sh ollama`). */
@@ -1489,7 +1517,7 @@ export interface components {
         /** @enum {string} */
         SectionKind: "education" | "experience" | "projects" | "skills";
         /** @enum {string} */
-        Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
+        Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus" | "director_plus";
         Skill: {
             /**
              * @description e.g. "Languages", "Tools". Empty when the resume didn't group them.
@@ -1532,6 +1560,32 @@ export interface components {
             detail?: string | null;
             kind?: components["schemas"]["SuggestKind"] | null;
             value: string;
+        };
+        /** @description A detail tag (`skill:rust`, `perk:401k_match`...) with its open-job count. */
+        TagCount: {
+            /** Format: int32 */
+            count: number;
+            label: string;
+            value: string;
+        };
+        /**
+         * @description The options of the filters read from job details: job functions in
+         *     display order, and every tag with its label, grouped by prefix.
+         */
+        Vocabulary: {
+            /**
+             * Format: int32
+             * @description Companies with open jobs whose facts are known, out of `companies_total`.
+             */
+            companies_known: number;
+            /** Format: int32 */
+            companies_total: number;
+            /** @description Headquarters countries, by open jobs. */
+            countries: components["schemas"]["FacetCount"][];
+            functions: components["schemas"]["FunctionCount"][];
+            /** @description Company industries (from Wikidata), by open jobs. */
+            industries: components["schemas"]["FacetCount"][];
+            tags: components["schemas"]["TagCount"][];
         };
         /** @description The work authorization questions, shared with `application_answers`. */
         WorkAuthorization: {
@@ -1928,7 +1982,7 @@ export interface operations {
                 workplace?: string;
                 /** @description Comma-separated: full_time, part_time, contract, internship. */
                 employment_type?: string;
-                /** @description Comma-separated: intern, entry, mid, senior, staff_plus. */
+                /** @description Comma-separated: intern, entry, mid, senior, staff_plus, director_plus. */
                 seniority?: string;
                 /** @description Comma-separated department names. */
                 department?: string;
@@ -1936,7 +1990,20 @@ export interface operations {
                 company?: string;
                 /** @description Comma-separated hiring platforms or job boards, e.g. greenhouse,workday,himalayas. */
                 source?: string;
-                posted_within?: "24h" | "3d" | "1w" | "2w" | "1m" | "3m";
+                posted_within?: "24h" | "3d" | "1w" | "2w" | "3w" | "1m" | "2m" | "3m" | "6m" | "1y";
+                /** @description Posted on or after this day, e.g. `2026-11-01`. */
+                posted_from?: string;
+                /** @description Posted on or before this day. */
+                posted_to?: string;
+                /**
+                 * @description Comma-separated: simple (a short form, no account), account (the
+                 *     applicant creates an account first, as on Workday).
+                 */
+                apply?: string;
+                /** @description Only jobs whose listed pay is per year or per hour. */
+                pay_period?: "year" | "hour";
+                /** @description Only jobs that list a salary. */
+                salary_listed?: boolean;
                 /**
                  * @description Minimum yearly salary; jobs without a listed salary are excluded
                  *     unless `include_unlisted_salary` is set.
@@ -1957,6 +2024,99 @@ export interface operations {
                 hide_citizens_only?: boolean;
                 /** @description Hide jobs flagged as possibly stale. */
                 hide_stale?: boolean;
+                /**
+                 * @description Comma-separated job functions (see `GET /jobs/vocabulary`), e.g.
+                 *     `software,data`.
+                 */
+                function?: string;
+                /** @description Least years of experience the job asks for, at least this. */
+                years_min?: number;
+                /** @description ...and at most this (10 or more means no upper limit). */
+                years_max?: number;
+                /** @description With a years range, keep jobs that don't say. */
+                years_unlisted?: boolean;
+                /** @description `ic` (individual contributor) or `manager` (manages people). */
+                role?: string;
+                /**
+                 * @description Comma-separated `level:state` pairs; a job matches each level named.
+                 *     Levels: associate, bachelors, masters, doctorate. States: required,
+                 *     preferred, not (not mentioned). E.g. `bachelors:required,bachelors:not`.
+                 */
+                edu?: string;
+                /**
+                 * @description Comma-separated perks the posting mentions, all of them: pto,
+                 *     four_day_week, 401k_match, parental_leave, retirement, tuition,
+                 *     visa_sponsorship, relocation.
+                 */
+                perk?: string;
+                /**
+                 * @description Comma-separated clearance levels, any of them: confidential, secret,
+                 *     top_secret, ts_sci, public_trust, interim, polygraph, none (no
+                 *     clearance mentioned).
+                 */
+                clearance?: string;
+                /** @description Hide jobs that mention a security clearance. */
+                hide_clearance?: boolean;
+                /** @description Comma-separated licenses or certifications, any of them (e.g. `rn,pmp`). */
+                cert?: string;
+                /** @description Comma-separated licenses or certifications to hide. */
+                x_cert?: string;
+                /** @description Hide jobs that mention any license or certification. */
+                no_cert?: boolean;
+                /** @description Comma-separated spoken languages, any of them (e.g. `spanish`). */
+                lang?: string;
+                /** @description Comma-separated spoken languages to hide. */
+                x_lang?: string;
+                /** @description Comma-separated groups the posting welcomes, any: veterans, fair_chance. */
+                encourage?: string;
+                /**
+                 * @description Comma-separated shifts the posting mentions, all of them: day,
+                 *     evening, night, weekend, holiday, overtime, on_call.
+                 */
+                shift?: string;
+                /** @description Comma-separated shifts to hide. */
+                x_shift?: string;
+                /** @description Comma-separated travel levels, any: none, minimal, moderate, extensive. */
+                travel?: string;
+                /** @description Comma-separated skills, any of them (e.g. `rust,react`). */
+                skill?: string;
+                /** @description Comma-separated skills to hide. */
+                x_skill?: string;
+                /** @description Hide staffing and recruiting agencies. */
+                hide_staffing?: boolean;
+                /** @description Comma-separated, any: temporary, seasonal. */
+                commit?: string;
+                /** @description Comma-separated graduation years the posting names, any (e.g. `2026`). */
+                grad?: string;
+                /** @description Comma-separated internship starts, any (e.g. `2026-summer`). */
+                start?: string;
+                /**
+                 * @description Semicolon-separated company industries (from Wikidata), any of them.
+                 *     Companies without known facts are left out.
+                 */
+                industry?: string;
+                /** @description Semicolon-separated industries to hide. */
+                x_industry?: string;
+                /**
+                 * @description Comma-separated organization types, any: public, private, nonprofit,
+                 *     government, cooperative.
+                 */
+                org_type?: string;
+                /** @description Comma-separated organization types to hide. */
+                x_org_type?: string;
+                /**
+                 * @description Comma-separated headcount bands, any: startup (1-50), small (51-200),
+                 *     medium (201-1,000), large (1,001-10,000), enterprise (10,001+).
+                 */
+                size?: string;
+                /** @description Founded in or after this year. */
+                founded_min?: number;
+                /** @description Founded in or before this year. */
+                founded_max?: number;
+                /** @description Semicolon-separated headquarters countries, any of them. */
+                hq?: string;
+                /** @description Semicolon-separated headquarters countries to hide. */
+                x_hq?: string;
                 sort?: "recommended" | "newest" | "salary";
                 /** @description 1-based page number. */
                 page?: number;
@@ -2005,6 +2165,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FacetCount"][];
+                };
+            };
+        };
+    };
+    vocabulary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Vocabulary"];
                 };
             };
         };

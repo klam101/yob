@@ -74,6 +74,35 @@ text_enum!(
         Usajobs => "usajobs",
     }
 );
+text_enum!(
+    /// How much work applying takes, by the system the job is posted on:
+    /// a short form with no account (Greenhouse, Lever, Ashby...), or an
+    /// account to create first (Workday...).
+    ApplyProcess {
+        Simple => "simple",
+        Account => "account",
+    }
+);
+
+impl ApplyProcess {
+    /// The sources whose apply flow is this kind. Job boards are in
+    /// neither: the apply link can go anywhere.
+    pub fn sources(self) -> &'static [Source] {
+        match self {
+            Self::Simple => &[
+                Source::Greenhouse,
+                Source::Lever,
+                Source::Ashby,
+                Source::Smartrecruiters,
+                Source::Workable,
+                Source::Recruitee,
+                Source::Bamboohr,
+            ],
+            Self::Account => &[Source::Workday],
+        }
+    }
+}
+
 text_enum!(Workplace { Onsite => "onsite", Hybrid => "hybrid", Remote => "remote" });
 text_enum!(EmploymentType {
     FullTime => "full_time",
@@ -87,6 +116,7 @@ text_enum!(Seniority {
     Mid => "mid",
     Senior => "senior",
     StaffPlus => "staff_plus",
+    DirectorPlus => "director_plus",
 });
 text_enum!(SalaryPeriod { Year => "year", Hour => "hour" });
 
@@ -136,6 +166,7 @@ mod tests {
         check(Platform::ALL, Platform::as_str);
         check(Feed::ALL, Feed::as_str);
         check(Source::ALL, Source::as_str);
+        check(ApplyProcess::ALL, ApplyProcess::as_str);
         check(Workplace::ALL, Workplace::as_str);
         check(EmploymentType::ALL, EmploymentType::as_str);
         check(Seniority::ALL, Seniority::as_str);

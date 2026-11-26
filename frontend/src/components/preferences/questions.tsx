@@ -62,6 +62,7 @@ const SENIORITY_HINTS: Record<Seniority, string> = {
   mid: "About 2 to 5 years",
   senior: "About 5+ years",
   staff_plus: "Staff, principal, lead",
+  director_plus: "Director, VP, executive",
 };
 
 const WORKPLACE_HINTS: Record<Workplace, string> = {

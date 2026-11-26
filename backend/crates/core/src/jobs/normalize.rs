@@ -64,18 +64,16 @@ pub fn infer_seniority(title: &str) -> Seniority {
     if has("intern") || has("internship") || has("co") && has("op") || lower.contains("co-op") {
         Seniority::Intern
     } else if [
-        "staff",
-        "principal",
-        "distinguished",
-        "director",
-        "head",
-        "vp",
-        "chief",
-        "fellow",
+        "director", "head", "vp", "svp", "evp", "chief", "cto", "cfo", "ceo", "coo", "cio", "ciso",
     ]
     .iter()
     .any(|x| has(x))
         || lower.contains("vice president")
+    {
+        Seniority::DirectorPlus
+    } else if ["staff", "principal", "distinguished", "fellow"]
+        .iter()
+        .any(|x| has(x))
     {
         Seniority::StaffPlus
     } else if has("senior")
@@ -216,10 +214,11 @@ pub fn parse_salary(text: &str) -> Option<Salary> {
     None
 }
 
-/// Version of the rules in this file. Bump it whenever a rule changes how
-/// seniority, scope, a text-parsed salary or the restrictions come out; the worker then
+/// Version of the rules in this file and in `extract.rs`. Bump it whenever a
+/// rule changes how seniority, scope, a text-parsed salary, the restrictions
+/// or the extracted details (tags, years, job function) come out; the worker then
 /// re-derives stored jobs (`ingest::renormalize`) without refetching them.
-pub const NORMALIZE_VERSION: i32 = 8;
+pub const NORMALIZE_VERSION: i32 = 9;
 
 /// Where a single location string points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -824,7 +823,8 @@ mod tests {
                 "Staff Software Engineer, Infrastructure",
                 Seniority::StaffPlus,
             ),
-            ("Director of Engineering", Seniority::StaffPlus),
+            ("Director of Engineering", Seniority::DirectorPlus),
+            ("VP, Product", Seniority::DirectorPlus),
             ("Software Engineer I", Seniority::Entry),
             ("Software Engineer, Early Career (SF)", Seniority::Entry),
             ("New Grad Software Engineer", Seniority::Entry),

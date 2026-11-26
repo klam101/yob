@@ -5,14 +5,15 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 use yob_core::jobs::{
-    EmploymentType, SalaryPeriod, Seniority, Source, Workplace, search,
-    store::{self, JobFilter, JobRow, JobSort},
+    ApplyProcess, EmploymentType, SalaryPeriod, Seniority, Source, Workplace, extract, functions,
+    search,
+    store::{self, AnyTags, EduRule, JobFilter, JobRow, JobSort},
 };
 
 use crate::{error::ApiError, state::AppState};
@@ -21,6 +22,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list_jobs))
         .routes(routes!(search_companies))
+        .routes(routes!(vocabulary))
         .routes(routes!(get_job))
 }
 
@@ -55,10 +57,18 @@ pub enum PostedWithin {
     Week,
     #[serde(rename = "2w")]
     TwoWeeks,
+    #[serde(rename = "3w")]
+    ThreeWeeks,
     #[serde(rename = "1m")]
     Month,
+    #[serde(rename = "2m")]
+    TwoMonths,
     #[serde(rename = "3m")]
     ThreeMonths,
+    #[serde(rename = "6m")]
+    SixMonths,
+    #[serde(rename = "1y")]
+    Year,
 }
 
 impl PostedWithin {
@@ -68,8 +78,12 @@ impl PostedWithin {
             Self::ThreeDays => Duration::days(3),
             Self::Week => Duration::weeks(1),
             Self::TwoWeeks => Duration::weeks(2),
+            Self::ThreeWeeks => Duration::weeks(3),
             Self::Month => Duration::days(30),
+            Self::TwoMonths => Duration::days(60),
             Self::ThreeMonths => Duration::days(90),
+            Self::SixMonths => Duration::days(182),
+            Self::Year => Duration::days(365),
         }
     }
 }
@@ -234,7 +248,7 @@ pub struct JobsQuery {
     pub workplace: Option<String>,
     /// Comma-separated: full_time, part_time, contract, internship.
     pub employment_type: Option<String>,
-    /// Comma-separated: intern, entry, mid, senior, staff_plus.
+    /// Comma-separated: intern, entry, mid, senior, staff_plus, director_plus.
     pub seniority: Option<String>,
     /// Comma-separated department names.
     pub department: Option<String>,
@@ -244,6 +258,18 @@ pub struct JobsQuery {
     pub source: Option<String>,
     #[param(inline)]
     pub posted_within: Option<PostedWithin>,
+    /// Posted on or after this day, e.g. `2026-11-01`.
+    pub posted_from: Option<NaiveDate>,
+    /// Posted on or before this day.
+    pub posted_to: Option<NaiveDate>,
+    /// Comma-separated: simple (a short form, no account), account (the
+    /// applicant creates an account first, as on Workday).
+    pub apply: Option<String>,
+    /// Only jobs whose listed pay is per year or per hour.
+    #[param(inline)]
+    pub pay_period: Option<SalaryPeriod>,
+    /// Only jobs that list a salary.
+    pub salary_listed: Option<bool>,
     /// Minimum yearly salary; jobs without a listed salary are excluded
     /// unless `include_unlisted_salary` is set.
     pub salary_min: Option<u32>,
@@ -260,6 +286,83 @@ pub struct JobsQuery {
     pub hide_citizens_only: Option<bool>,
     /// Hide jobs flagged as possibly stale.
     pub hide_stale: Option<bool>,
+    /// Comma-separated job functions (see `GET /jobs/vocabulary`), e.g.
+    /// `software,data`.
+    pub function: Option<String>,
+    /// Least years of experience the job asks for, at least this.
+    pub years_min: Option<u8>,
+    /// ...and at most this (10 or more means no upper limit).
+    pub years_max: Option<u8>,
+    /// With a years range, keep jobs that don't say.
+    pub years_unlisted: Option<bool>,
+    /// `ic` (individual contributor) or `manager` (manages people).
+    pub role: Option<String>,
+    /// Comma-separated `level:state` pairs; a job matches each level named.
+    /// Levels: associate, bachelors, masters, doctorate. States: required,
+    /// preferred, not (not mentioned). E.g. `bachelors:required,bachelors:not`.
+    pub edu: Option<String>,
+    /// Comma-separated perks the posting mentions, all of them: pto,
+    /// four_day_week, 401k_match, parental_leave, retirement, tuition,
+    /// visa_sponsorship, relocation.
+    pub perk: Option<String>,
+    /// Comma-separated clearance levels, any of them: confidential, secret,
+    /// top_secret, ts_sci, public_trust, interim, polygraph, none (no
+    /// clearance mentioned).
+    pub clearance: Option<String>,
+    /// Hide jobs that mention a security clearance.
+    pub hide_clearance: Option<bool>,
+    /// Comma-separated licenses or certifications, any of them (e.g. `rn,pmp`).
+    pub cert: Option<String>,
+    /// Comma-separated licenses or certifications to hide.
+    pub x_cert: Option<String>,
+    /// Hide jobs that mention any license or certification.
+    pub no_cert: Option<bool>,
+    /// Comma-separated spoken languages, any of them (e.g. `spanish`).
+    pub lang: Option<String>,
+    /// Comma-separated spoken languages to hide.
+    pub x_lang: Option<String>,
+    /// Comma-separated groups the posting welcomes, any: veterans, fair_chance.
+    pub encourage: Option<String>,
+    /// Comma-separated shifts the posting mentions, all of them: day,
+    /// evening, night, weekend, holiday, overtime, on_call.
+    pub shift: Option<String>,
+    /// Comma-separated shifts to hide.
+    pub x_shift: Option<String>,
+    /// Comma-separated travel levels, any: none, minimal, moderate, extensive.
+    pub travel: Option<String>,
+    /// Comma-separated skills, any of them (e.g. `rust,react`).
+    pub skill: Option<String>,
+    /// Comma-separated skills to hide.
+    pub x_skill: Option<String>,
+    /// Hide staffing and recruiting agencies.
+    pub hide_staffing: Option<bool>,
+    /// Comma-separated, any: temporary, seasonal.
+    pub commit: Option<String>,
+    /// Comma-separated graduation years the posting names, any (e.g. `2026`).
+    pub grad: Option<String>,
+    /// Comma-separated internship starts, any (e.g. `2026-summer`).
+    pub start: Option<String>,
+    /// Semicolon-separated company industries (from Wikidata), any of them.
+    /// Companies without known facts are left out.
+    pub industry: Option<String>,
+    /// Semicolon-separated industries to hide.
+    pub x_industry: Option<String>,
+    /// Comma-separated organization types, any: public, private, nonprofit,
+    /// government, cooperative.
+    pub org_type: Option<String>,
+    /// Comma-separated organization types to hide.
+    pub x_org_type: Option<String>,
+    /// Comma-separated headcount bands, any: startup (1-50), small (51-200),
+    /// medium (201-1,000), large (1,001-10,000), enterprise (10,001+).
+    pub size: Option<String>,
+    /// Founded in or after this year.
+    pub founded_min: Option<i16>,
+    /// Founded in or before this year.
+    pub founded_max: Option<i16>,
+    /// Semicolon-separated headquarters countries, any of them.
+    pub hq: Option<String>,
+    /// Semicolon-separated headquarters countries to hide.
+    pub x_hq: Option<String>,
     #[param(inline)]
     pub sort: Option<Sort>,
     /// 1-based page number.
@@ -382,6 +485,99 @@ async fn cached_facets(state: &AppState) -> Result<Facets, ApiError> {
     Ok(facets)
 }
 
+/// A job function with its open-job count.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FunctionCount {
+    pub value: String,
+    pub group: String,
+    pub label: String,
+    pub count: u32,
+}
+
+/// A detail tag (`skill:rust`, `perk:401k_match`...) with its open-job count.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TagCount {
+    pub value: String,
+    pub label: String,
+    pub count: u32,
+}
+
+/// The options of the filters read from job details: job functions in
+/// display order, and every tag with its label, grouped by prefix.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Vocabulary {
+    pub functions: Vec<FunctionCount>,
+    pub tags: Vec<TagCount>,
+    /// Company industries (from Wikidata), by open jobs.
+    pub industries: Vec<FacetCount>,
+    /// Headquarters countries, by open jobs.
+    pub countries: Vec<FacetCount>,
+    /// Companies with open jobs whose facts are known, out of `companies_total`.
+    pub companies_known: u32,
+    pub companies_total: u32,
+}
+
+const VOCABULARY_KEY: &str = "cache:vocabulary:v2";
+const VOCABULARY_TTL_SECS: u64 = 1800;
+
+/// Job functions and detail tags with open-job counts (cached 30 minutes),
+/// for the All filters dialog.
+#[utoipa::path(
+    get,
+    path = "/jobs/vocabulary",
+    tag = "jobs",
+    responses((status = OK, body = Vocabulary))
+)]
+async fn vocabulary(State(state): State<AppState>) -> Result<Json<Vocabulary>, ApiError> {
+    use deadpool_redis::redis::AsyncCommands;
+
+    let mut conn = state.redis.get().await.ok();
+    if let Some(conn) = conn.as_mut()
+        && let Ok(Some(json)) = conn.get::<_, Option<String>>(VOCABULARY_KEY).await
+        && let Ok(v) = serde_json::from_str::<Vocabulary>(&json)
+    {
+        return Ok(Json(v));
+    }
+
+    let (function_counts, tag_counts) = store::detail_counts(&state.db).await?;
+    let company = store::company_fact_counts(&state.db).await?;
+    let count = |counts: &[store::Count], value: &str| {
+        counts
+            .iter()
+            .find(|c| c.value == value)
+            .map_or(0, |c| c.count.max(0) as u32)
+    };
+    let v = Vocabulary {
+        functions: functions::FUNCTIONS
+            .iter()
+            .map(|f| FunctionCount {
+                value: f.value.to_owned(),
+                group: f.group.to_owned(),
+                label: f.label.to_owned(),
+                count: count(&function_counts, f.value),
+            })
+            .collect(),
+        tags: extract::vocabulary()
+            .into_iter()
+            .map(|t| TagCount {
+                value: t.value.to_owned(),
+                label: t.label.to_owned(),
+                count: count(&tag_counts, t.value),
+            })
+            .collect(),
+        industries: company.industries.into_iter().map(facet).collect(),
+        countries: company.countries.into_iter().map(facet).collect(),
+        companies_known: company.known.max(0) as u32,
+        companies_total: company.total.max(0) as u32,
+    };
+    if let Some(conn) = conn.as_mut()
+        && let Ok(json) = serde_json::to_string(&v)
+    {
+        let _: Result<(), _> = conn.set_ex(VOCABULARY_KEY, json, VOCABULARY_TTL_SECS).await;
+    }
+    Ok(Json(v))
+}
+
 /// One job with its full description. Closed jobs are still returned, with
 /// `closed_at` set, so saved jobs can show that they've expired.
 #[utoipa::path(
@@ -476,6 +672,7 @@ fn summary(r: JobRow) -> JobSummary {
 }
 
 fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
+    let (tags_any, tags_all, tags_none) = tag_filters(q)?;
     Ok(JobFilter {
         q: trimmed(&q.q),
         titles: split_trimmed(&q.title),
@@ -487,6 +684,11 @@ fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
         company: split_lower(&q.company),
         source: parse_list(&q.source, "source", Source::parse)?,
         posted_after: q.posted_within.map(|w| Utc::now() - w.duration()),
+        posted_from: q.posted_from,
+        posted_to: q.posted_to,
+        apply: parse_list(&q.apply, "apply", ApplyProcess::parse)?,
+        pay_period: q.pay_period,
+        salary_listed: q.salary_listed.unwrap_or(false),
         salary_min: q.salary_min.map(|v| v.min(i32::MAX as u32) as i32),
         include_unlisted_salary: q.include_unlisted_salary.unwrap_or(false),
         hide_stale: q.hide_stale.unwrap_or(false),
@@ -494,7 +696,200 @@ fn to_filter(q: &JobsQuery) -> Result<JobFilter, ApiError> {
         exclude_company: split_lower(&q.exclude_company),
         hide_no_sponsorship: q.hide_no_sponsorship.unwrap_or(false),
         hide_citizens_only: q.hide_citizens_only.unwrap_or(false),
+        functions: split_lower(&q.function),
+        years_min: q.years_min.map(i16::from),
+        years_max: q.years_max.filter(|&m| m < 10).map(i16::from),
+        years_unlisted: q.years_unlisted.unwrap_or(false),
+        tags_any,
+        tags_all,
+        tags_none,
+        edu: edu_rules(&q.edu)?,
+        hide_staffing: q.hide_staffing.unwrap_or(false),
+        industries: split_semi(&q.industry),
+        exclude_industries: split_semi(&q.x_industry),
+        org_types: org_types(&q.org_type)?,
+        exclude_org_types: org_types(&q.x_org_type)?,
+        sizes: split_lower(&q.size)
+            .into_iter()
+            .map(|band| {
+                size_range(&band)
+                    .ok_or_else(|| ApiError::bad_request(format!("Unknown size value: {band}")))
+            })
+            .collect::<Result<_, _>>()?,
+        founded_min: q.founded_min,
+        founded_max: q.founded_max,
+        hq_countries: split_semi(&q.hq),
+        exclude_hq_countries: split_semi(&q.x_hq),
     })
+}
+
+/// A `;`-separated list, trimmed, at most 30 entries (values may hold commas).
+fn split_semi(v: &Option<String>) -> Vec<String> {
+    v.as_deref()
+        .unwrap_or("")
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .take(30)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn org_types(v: &Option<String>) -> Result<Vec<String>, ApiError> {
+    const ALL: [&str; 5] = [
+        "public",
+        "private",
+        "nonprofit",
+        "government",
+        "cooperative",
+    ];
+    split_lower(v)
+        .into_iter()
+        .map(|t| {
+            if ALL.contains(&t.as_str()) {
+                Ok(t)
+            } else {
+                Err(ApiError::bad_request(format!(
+                    "Unknown org_type value: {t}"
+                )))
+            }
+        })
+        .collect()
+}
+
+/// Headcount band -> inclusive range (the preferences' company sizes).
+fn size_range(band: &str) -> Option<(i32, i32)> {
+    Some(match band {
+        "startup" => (1, 50),
+        "small" => (51, 200),
+        "medium" => (201, 1_000),
+        "large" => (1_001, 10_000),
+        "enterprise" => (10_001, i32::MAX),
+        _ => return None,
+    })
+}
+
+/// `perk=pto,tuition` -> `["perk:pto", "perk:tuition"]`. Values are slugs;
+/// anything else is dropped.
+fn tags(v: &Option<String>, prefix: &str) -> Vec<String> {
+    split_lower(v)
+        .into_iter()
+        .filter(|t| {
+            t.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+        .take(40)
+        .map(|t| format!("{prefix}:{t}"))
+        .collect()
+}
+
+/// Any of the values; `none` means "no tag of this kind", given as `without`.
+fn any_or_none(v: &Option<String>, prefix: &str, without: &[String]) -> Option<AnyTags> {
+    let all = tags(v, prefix);
+    if all.is_empty() {
+        return None;
+    }
+    let none = format!("{prefix}:none");
+    Some(AnyTags {
+        or_without: if all.contains(&none) {
+            without.to_vec()
+        } else {
+            Vec::new()
+        },
+        tags: all.into_iter().filter(|t| *t != none).collect(),
+    })
+}
+
+type TagFilters = (Vec<AnyTags>, Vec<String>, Vec<String>);
+
+/// The tag filters, as (any-of groups, all-of, none-of).
+fn tag_filters(q: &JobsQuery) -> Result<TagFilters, ApiError> {
+    let mut any = Vec::new();
+    let mut all = Vec::new();
+    let mut none = Vec::new();
+    let travel_levels: Vec<String> = ["minimal", "moderate", "extensive"]
+        .iter()
+        .map(|t| format!("travel:{t}"))
+        .collect();
+    any.extend(any_or_none(
+        &q.clearance,
+        "clearance",
+        &["clearance:any".to_owned()],
+    ));
+    any.extend(any_or_none(&q.travel, "travel", &travel_levels));
+    for (v, prefix) in [
+        (&q.cert, "cert"),
+        (&q.lang, "lang"),
+        (&q.encourage, "encourage"),
+        (&q.skill, "skill"),
+        (&q.commit, "commit"),
+        (&q.grad, "grad"),
+        (&q.start, "start"),
+    ] {
+        let t = tags(v, prefix);
+        if !t.is_empty() {
+            any.push(AnyTags {
+                tags: t,
+                or_without: Vec::new(),
+            });
+        }
+    }
+    all.extend(tags(&q.perk, "perk"));
+    all.extend(tags(&q.shift, "shift"));
+    for (v, prefix) in [
+        (&q.x_cert, "cert"),
+        (&q.x_lang, "lang"),
+        (&q.x_shift, "shift"),
+        (&q.x_skill, "skill"),
+    ] {
+        none.extend(tags(v, prefix));
+    }
+    if q.hide_clearance == Some(true) {
+        none.push("clearance:any".into());
+    }
+    if q.no_cert == Some(true) {
+        none.push("cert:any".into());
+    }
+    match q.role.as_deref().map(str::trim) {
+        None | Some("") => {}
+        Some("manager") => all.push("role:manager".into()),
+        Some("ic") => none.push("role:manager".into()),
+        Some(other) => {
+            return Err(ApiError::bad_request(format!(
+                "Unknown role value: {other}"
+            )));
+        }
+    }
+    Ok((any, all, none))
+}
+
+/// `edu=bachelors:required,bachelors:preferred` -> one rule per level.
+fn edu_rules(v: &Option<String>) -> Result<Vec<EduRule>, ApiError> {
+    let mut rules: Vec<EduRule> = Vec::new();
+    for pair in split_lower(v) {
+        let bad = || ApiError::bad_request(format!("Unknown edu value: {pair}"));
+        let (level, state) = pair.split_once(':').ok_or_else(bad)?;
+        if !["associate", "bachelors", "masters", "doctorate"].contains(&level) {
+            return Err(bad());
+        }
+        let i = match rules.iter().position(|r| r.level == level) {
+            Some(i) => i,
+            None => {
+                rules.push(EduRule {
+                    level: level.to_owned(),
+                    ..EduRule::default()
+                });
+                rules.len() - 1
+            }
+        };
+        match state {
+            "required" => rules[i].required = true,
+            "preferred" => rules[i].preferred = true,
+            "not" => rules[i].not_mentioned = true,
+            _ => return Err(bad()),
+        }
+    }
+    Ok(rules)
 }
 
 fn trimmed(v: &Option<String>) -> Option<String> {

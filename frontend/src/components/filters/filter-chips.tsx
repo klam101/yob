@@ -2,6 +2,7 @@
 
 import { ChevronDown, PencilLine, Sparkles, X } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import type { Facets } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,6 +12,7 @@ import {
   EMPLOYMENT,
   type FilterKey,
   POSTED_WITHIN,
+  POSTED_WITHIN_SHORT,
   SENIORITY,
   SOURCE,
   activeCount,
@@ -26,6 +28,7 @@ import {
 import { cn } from "cn";
 import { AllFiltersDialog } from "./all-filters-dialog";
 import { CompanyPicker } from "./company-picker";
+import { FunctionPicker, useVocabulary } from "./detail-sections";
 import { type Choice, CheckList, RadioList, facetChoices } from "./controls";
 import { useFeed } from "./feed-context";
 
@@ -44,7 +47,7 @@ export function FilterChips({ facets }: { facets: Facets }) {
       <RadioChip
         label="Date posted"
         filterKey="posted_within"
-        options={POSTED_WITHIN}
+        options={POSTED_WITHIN_SHORT}
         anyLabel="Any time"
       />
       <CheckChip label="Experience" filterKey="seniority" options={SENIORITY} />
@@ -55,7 +58,7 @@ export function FilterChips({ facets }: { facets: Facets }) {
         options={salaryOptions(query.salary_min)}
         anyLabel="Any salary"
       />
-      <CheckChip label="Department" filterKey="department" options={facetChoices(facets.departments)} scroll />
+      <FunctionChip />
       <CompanyChip top={facetChoices(facets.companies)} />
       <CheckChip label="Source" filterKey="source" options={SOURCE} />
 
@@ -175,6 +178,32 @@ function CheckChip({
   );
 }
 
+/** Job functions, grouped, in a wide popover. */
+function FunctionChip() {
+  const { query, apply } = useFeed();
+  const [open, setOpen] = useState(false);
+  const vocab = useVocabulary(open || listOf(query, "function").length > 0);
+  const selected = listOf(query, "function");
+  const first = vocab.functions.find((f) => f.value === selected[0])?.label ?? selected[0];
+  const summary = selected.length === 1 ? first : selected.length > 1 ? `${selected.length} selected` : undefined;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <ChipTrigger label="Job function" summary={summary} active={selected.length > 0} />
+      <PopoverContent align="start" className="w-[min(36rem,calc(100vw-2rem))] p-3">
+        <ChipHeader
+          label="Job function"
+          onClear={selected.length ? () => apply(withValue(query, "function", undefined)) : undefined}
+        />
+        <ScrollArea className="max-h-[min(28rem,60dvh)]">
+          <div className="p-1">
+            <FunctionPicker vocab={vocab} draft={query} set={apply} />
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function CompanyChip({ top }: { top: Choice[] }) {
   const { query, apply } = useFeed();
   const selected = listOf(query, "company");
@@ -216,7 +245,10 @@ function RadioChip({
     <Popover>
       <ChipTrigger
         label={label}
-        summary={labelOf(options, value) ?? (filterKey === "salary_min" ? salaryLabel(value) : value)}
+        summary={
+          labelOf(options, value) ??
+          (filterKey === "salary_min" ? salaryLabel(value) : (labelOf(POSTED_WITHIN, value) ?? value))
+        }
         active={!!value}
       />
       <PopoverContent align="start" className="w-60 p-1.5">

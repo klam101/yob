@@ -77,7 +77,7 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 
 **Career pages, staffing and long tail**
 - [ ] Career-page crawler reading schema.org JobPosting (sitemaps, robots.txt), with Web Data Commons discovery
-- [ ] "Staffing agency" tag and filter (Himalayas adds many: staffing firms and AI-training gig platforms like micro1 and Mercor)
+- [x] "Staffing agency" tag and filter (Himalayas adds many: staffing firms and AI-training gig platforms like micro1 and Mercor)
 - [ ] Niche boards (government, higher ed, nonprofit) via RSS and APIs
 - [ ] Hacker News "Who is hiring" via the Algolia API, parsed by the local model
 - [ ] Extension: "Save this job" for a LinkedIn or Indeed page you're viewing (no crawling)
@@ -94,7 +94,8 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Preferences become the feed's default filters ("My preferences" chip); editable at `/preferences`, linked from Profile
 - [x] New feed filters: several titles, several places (`;`), keep jobs without a salary, excluded title words and companies, hide no-sponsorship and citizens-only jobs
 - [x] `no_sponsorship` and `citizens_only` read from descriptions by explicit wording (NORMALIZE_VERSION 8)
-- [ ] Company size and industry filters, once company data is collected (answers are already saved)
+- [x] Company size and industry filters (Wikidata facts)
+- [ ] Apply the questionnaire's company size and industry answers as default feed filters
 - [ ] Title synonyms ("SWE", "Sr.", "Front-end" vs "Frontend") so fewer matching jobs are missed
 - [ ] Suggest job titles from the profile's experience on the first step
 
@@ -124,6 +125,16 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Feed search box suggests job titles and companies while typing (keyword search; a picked company becomes a Company filter); the location box suggests cities; nothing shows until you type
 - [x] Related titles in the feed's suggestions from a rule-based table ("coder" -> Software Developer); replace or extend with embeddings in Stage 5
 - [ ] Related titles in the search results too (a keyword search for "coder" also finds Software Developer jobs), with the filters work
+- [x] All filters, phase 1: "Selected filters" tab, Clear per section, removable chips along the footer, filter search that matches option words; more date presets and a custom From/To range; Apply process (quick apply vs. account required, from the job's platform); minimum pay typed per year or per hour; listed pay period; "only jobs that list a salary"; chip-style experience, job type and workplace
+- [x] All filters, phase 2a: read from descriptions with rules (`jobs.tags`, `min_years`, `job_function`): job function taxonomy, years of experience, IC/manager, education, perks, clearance, licenses, languages, encouraged to apply, shifts, travel, skills, staffing agencies, temporary/seasonal, internship start and graduation year, Director/Executive seniority
+- [x] All filters, phase 2b: company facts from Wikidata (CC0, matched by name): industry, organization type (public, private, nonprofit...), size, founding year, HQ country
+- [ ] Exclude saved, applied or viewed jobs (needs the tracker)
+- [ ] Fields of study under Education ("Bachelor's in Computer Science"), from the degree sentences
+- [ ] Show a job's extracted details on its page (education, perks, clearance, travel, skills)
+- [ ] Better company matching for Wikidata: confirm by website once companies have domains
+- [ ] Company stage and investors (no free source; Wikidata only knows public listings)
+- [ ] Employer's H-1B history from the public DOL disclosure data ("sponsored before")
+- [ ] Semantic search: embed titles and jobs with `qwen3-embedding:4b` (pgvector is in place), hybrid with full-text ranking
 - [x] State (US list while the country is the US; stores the code) and country (every country, found by code or other name: "uk", "usa") type-ahead on Personal
 - [x] Picking a school fills an empty education location with its city; a title with "Intern" makes an unset job type Internship
 - [ ] ZIP code fills city and state (local list from GeoNames US postal codes, CC BY 4.0; needs the one-time download approved)
@@ -143,8 +154,8 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Embed jobs and profile with `qwen3-embedding:4b` into pgvector
 - [ ] Shortlist by vector similarity, then score the top jobs with `qwen3:8b` (score, breakdown, reasons)
 - [ ] "Recommended" sort uses real scores; real keyword gap
-- [ ] Extract experience years, education, skills, clearance and sponsorship from descriptions
-- [ ] More filters from the extracted data: Education, Skills, Clearance, Sponsorship
+- [x] Extract experience years, education, skills, clearance and sponsorship from descriptions (rules, `core::jobs::extract`; a model may refine later)
+- [x] More filters from the extracted data: Education, Skills, Clearance, Sponsorship
 
 ### 6. Tailored documents
 - [ ] Tailor a resume per job from the profile tables (rephrase only, never invent)
