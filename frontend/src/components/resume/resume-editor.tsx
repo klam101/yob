@@ -932,11 +932,11 @@ function Educations({ content, set, update, shift, removeRow }: Edit) {
                   source="school"
                   value={e.school}
                   onChange={(v) => set(`${at}.school`, v)}
-                  // The school's city fills an empty location.
+                  // Picking a school sets the location to its city.
                   onPick={({ value, detail }) =>
                     update((c) => {
                       const next = setPath(c, `${at}.school`, value);
-                      return detail && !e.location ? setPath(next, `${at}.location`, detail) : next;
+                      return detail ? setPath(next, `${at}.location`, detail) : next;
                     })
                   }
                   className="font-semibold"

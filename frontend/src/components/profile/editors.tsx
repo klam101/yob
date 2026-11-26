@@ -261,10 +261,8 @@ export function EducationEditor({
             required
             value={e.school}
             onChange={(school) => update({ school })}
-            // The school's city fills an empty location.
-            onPick={({ value: school, detail }) =>
-              update(e.location || !detail ? { school } : { school, location: detail })
-            }
+            // Picking a school sets the location to its city.
+            onPick={({ value: school, detail }) => update(detail ? { school, location: detail } : { school })}
           />
           <div className={grid}>
             <TextField

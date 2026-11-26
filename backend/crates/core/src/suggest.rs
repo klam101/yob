@@ -210,6 +210,16 @@ fn search_list(list: &[Entry], query: &str, limit: usize) -> Vec<Suggestion> {
     out
 }
 
+/// The detail of the list entry named `value` (the biggest one when two
+/// campuses share a name).
+fn detail_for(list: &[Entry], value: &str) -> Option<String> {
+    let f = fold(value);
+    list.iter()
+        .filter(|e| fold(&e.value) == f)
+        .max_by_key(|e| e.weight)
+        .and_then(|e| e.detail.clone())
+}
+
 // --- terms from the job data -------------------------------------------------------
 
 async fn search_terms(
@@ -295,9 +305,15 @@ pub async fn suggest(
     for v in own {
         let f = fold(v);
         if !f.is_empty() && (q.is_empty() || rank(&f, &q, &tokens).is_some()) && seen.insert(f) {
+            // A school from the list keeps its city ("Clemson, SC"), so it
+            // shows under the name and fills the location when picked.
+            let detail = match kind {
+                SuggestKind::School => detail_for(&SCHOOLS, v),
+                _ => None,
+            };
             out.push(Suggestion {
                 value: v.clone(),
-                detail: None,
+                detail,
             });
         }
     }
@@ -508,6 +524,19 @@ mod tests {
         assert_eq!(r[0].value, "University of California-Los Angeles");
         let r = search_list(&SCHOOLS, "clemsn university", 8);
         assert!(r.iter().any(|s| s.value == "Clemson University"), "{r:?}");
+    }
+
+    #[test]
+    fn own_school_keeps_its_city() {
+        assert_eq!(
+            detail_for(&SCHOOLS, "Clemson University").as_deref(),
+            Some("Clemson, SC")
+        );
+        assert_eq!(
+            detail_for(&SCHOOLS, "clemson university").as_deref(),
+            Some("Clemson, SC")
+        );
+        assert_eq!(detail_for(&SCHOOLS, "Not A Real School"), None);
     }
 
     #[test]
