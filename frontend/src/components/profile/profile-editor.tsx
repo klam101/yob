@@ -151,7 +151,11 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
         <div className="rounded-3xl border border-border/70 bg-card shadow-soft">
           <nav
             aria-label="Profile sections"
-            className="sticky top-0 z-10 overflow-x-auto rounded-t-3xl border-b border-border/70 bg-card/95 px-3 backdrop-blur sm:px-5"
+            // Scrolls sideways when the tabs don't fit, without showing a
+            // scrollbar. The divider is an inset shadow, so the active tab's
+            // underline covers it without spilling out (which made a
+            // vertical scrollbar).
+            className="sticky top-0 z-10 overflow-x-auto overflow-y-hidden rounded-t-3xl bg-card/95 px-3 shadow-[inset_0_-1px_0_color-mix(in_oklch,var(--border)_70%,transparent)] backdrop-blur [scrollbar-width:none] sm:px-5 [&::-webkit-scrollbar]:hidden"
           >
             <ul className="flex gap-1">
               {SECTIONS.map((s) => (
@@ -161,7 +165,7 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
                     aria-current={active === s.id ? "location" : undefined}
                     onClick={() => setActive(s.id)}
                     className={cn(
-                      "-mb-px block border-b-2 px-3 py-3.5 text-sm font-medium whitespace-nowrap transition-colors",
+                      "block border-b-2 px-3 py-3.5 text-sm font-medium whitespace-nowrap transition-colors",
                       active === s.id
                         ? "border-primary text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground",
