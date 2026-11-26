@@ -691,6 +691,7 @@ function Header({ content, set, update }: Edit) {
             label="Location"
             placeholder="Location…"
             icon={MapPin}
+            source="location"
             value={h.location}
             onChange={(v) => set("header.location", v)}
           />
@@ -925,13 +926,27 @@ function Educations({ content, set, update, shift, removeRow }: Edit) {
           return (
             <FieldScope key={i} path={String(i)}>
               <EntryShell label={`education ${i + 1}`} onDelete={() => removeRow("educations", i)}>
-                <InlineText name="school" label="School" value={e.school} onChange={(v) => set(`${at}.school`, v)} className="font-semibold" />
+                <InlineText
+                  name="school"
+                  label="School"
+                  source="school"
+                  value={e.school}
+                  onChange={(v) => set(`${at}.school`, v)}
+                  // The school's city fills an empty location.
+                  onPick={({ value, detail }) =>
+                    update((c) => {
+                      const next = setPath(c, `${at}.school`, value);
+                      return detail && !e.location ? setPath(next, `${at}.location`, detail) : next;
+                    })
+                  }
+                  className="font-semibold"
+                />
                 <Dates start={e.start} end={e.end} onStart={(v) => set(`${at}.start`, v)} onEnd={(v) => set(`${at}.end`, v)} />
                 <div className="max-w-xs">
                   <InlineText name="gpa" label="GPA" placeholder="GPA…" value={e.gpa} onChange={(v) => set(`${at}.gpa`, v)} className="text-sm" />
                 </div>
                 <div className="max-w-md">
-                  <InlineText name="location" label="Location" placeholder="Location…" value={e.location} onChange={(v) => set(`${at}.location`, v)} className="text-sm" />
+                  <InlineText name="location" label="Location" placeholder="Location…" source="location" value={e.location} onChange={(v) => set(`${at}.location`, v)} className="text-sm" />
                 </div>
                 <Degrees degrees={e.degrees} at={at} set={set} update={update} />
                 <div className="max-w-md">
@@ -980,7 +995,7 @@ function Experiences({ content, set, update, shift, removeRow }: Edit) {
           return (
             <FieldScope key={i} path={String(i)}>
               <EntryShell label={`work experience ${i + 1}`} onDelete={() => removeRow("experiences", i)}>
-                <InlineText name="company" label="Company" value={x.company} onChange={(v) => set(`${at}.company`, v)} className="font-semibold" />
+                <InlineText name="company" label="Company" source="company" value={x.company} onChange={(v) => set(`${at}.company`, v)} className="font-semibold" />
                 <Dates
                   start={x.start}
                   end={x.end}
@@ -992,9 +1007,9 @@ function Experiences({ content, set, update, shift, removeRow }: Edit) {
                   }}
                 />
                 <div className="max-w-md">
-                  <InlineText name="location" label="Location" placeholder="Location…" value={x.location} onChange={(v) => set(`${at}.location`, v)} className="text-sm" />
+                  <InlineText name="location" label="Location" placeholder="Location…" source="location" value={x.location} onChange={(v) => set(`${at}.location`, v)} className="text-sm" />
                 </div>
-                <InlineText name="title" label="Job title" placeholder="Job title" value={x.title} onChange={(v) => set(`${at}.title`, v)} className="text-sm font-medium" />
+                <InlineText name="title" label="Job title" placeholder="Job title" source="title" value={x.title} onChange={(v) => set(`${at}.title`, v)} className="text-sm font-medium" />
                 <InlineText
                   name="summary"
                   label="Role summary"

@@ -213,6 +213,7 @@ export function RolesQuestions({ value, onChange }: Props) {
           onChange={(titles) => onChange({ ...value, titles })}
           placeholder="e.g. Software Engineer, then Enter"
           suggestions={TITLE_SUGGESTIONS}
+          source="title"
         />
       </Question>
       <Question title="What level?" hint="Pick every level you'd consider. None picked means any level.">
@@ -272,6 +273,7 @@ export function LocationQuestions({ value, onChange }: Props) {
           onChange={(locations) => onChange({ ...value, locations })}
           separators={[";"]}
           placeholder="e.g. Austin, TX, then Enter"
+          source="location"
         />
       </Question>
     </div>

@@ -2,7 +2,7 @@
 
 import { ArrowRight, CaseSensitive, Check, Undo2, Wand2 } from "lucide-react";
 import { createContext, useContext, useId, useState } from "react";
-import type { ResumeChange } from "@/api/client";
+import type { ResumeChange, SuggestKind } from "@/api/client";
 import { GrowingTextarea, IconButton, invalidClass, useFieldError, useFieldPath } from "@/components/profile/fields";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -125,6 +125,8 @@ export function InlineText({
   fit = false,
   tag = true,
   suggestions,
+  source,
+  onPick,
   autoFocus,
 }: {
   /** The field's name in the content, for errors and change marks. */
@@ -145,6 +147,10 @@ export function InlineText({
   tag?: boolean;
   /** Suggestions in a menu below, narrowed as you type (any text is allowed). */
   suggestions?: readonly string[];
+  /** Suggestions from the API instead: cities, schools, companies, job titles. */
+  source?: SuggestKind;
+  /** Handles a picked suggestion instead of `onChange` (to fill other fields from it). */
+  onPick?: (item: { value: string; detail?: string }) => void;
   autoFocus?: boolean;
 }) {
   const id = useId();
@@ -175,12 +181,14 @@ export function InlineText({
               className,
             )}
           />
-        ) : suggestions ? (
+        ) : suggestions || source ? (
           <SuggestInput
             {...common}
             autoFocus={autoFocus}
             value={value}
             options={suggestions}
+            source={source}
+            onPick={onPick}
             onChange={onChange}
             className={cn(
               inlineClass,

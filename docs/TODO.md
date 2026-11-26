@@ -118,6 +118,19 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Degrees on a resume as "X in Y" rows ("Bachelor of Science in Computer Science", "Minor in Business", "Major in Mathematics"), one row per "+"; both boxes suggest and take any text; older saved resumes upgraded in place
 - [x] Dates stored as whole days (`YYYY-MM-DD`; a month alone is the 1st) for forms that ask for the day, shown as "Nov 2026"; app-styled date picker (`DateInput`: type 11/25/2026 or 11/2026, or pick from a calendar with month and year views)
 - [x] App-styled suggestion menu (`SuggestInput`) below the box, a few options narrowed as you type; replaces every native `<datalist>`
+- [x] Type-ahead for cities, schools, companies and job titles (`/suggest/{kind}`): Profile, resume page, preferences and the feed's location filter; your own past entries first
+- [ ] Type-ahead for skills: a curated vocabulary (seeded from O*NET Technology Skills, CC BY 4.0, credited in the README), searched on the server; also normalizes spelling ("reactjs" -> "React")
+- [ ] Industry suggestions on the new menu (preferences' `INDUSTRY_SUGGESTIONS`)
+- [ ] Feed search box suggests titles and companies while typing
+- [x] State (US list while the country is the US; stores the code) and country (every country, found by code or other name: "uk", "usa") type-ahead on Personal
+- [x] Picking a school fills an empty education location with its city; a title with "Intern" makes an unset job type Internship
+- [ ] ZIP code fills city and state (local list from GeoNames US postal codes, CC BY 4.0; needs the one-time download approved)
+- [ ] Pasting a full name into First name splits it into first, middle and last
+- [ ] A bare username in the LinkedIn or GitHub field becomes the full URL
+- [ ] Pasting a one-line address into Street splits it into street, city, state and ZIP (local parsing, no lookup service)
+- [ ] Company pick offers the company's most common job location from our job data
+- [ ] Small static lists: phone country code, link labels; replace the remaining native `<select>`s (job type, phone type) with app-styled menus
+- Street-address suggestions: decided against. They need Google Places (paid) or sending the home address to a third party
 - [ ] Two-column PDF layouts (sidebar resumes): text extraction interleaves the columns
 - [ ] Export a resume (PDF/DOCX from its content), with Stage 6 rendering
 - [ ] "Analyze" a resume against a job: keyword gap (Stages 5–6)

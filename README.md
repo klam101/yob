@@ -63,7 +63,7 @@ URLs: web app http://127.0.0.1:3000, API health http://127.0.0.1:8080/health, Op
 | --- | --- |
 | `backend/crates/api` | Axum HTTP server (`api` binary) |
 | `backend/crates/worker` | Background jobs (`worker` binary) |
-| `backend/crates/core` | Modules: jobs, profile, matching, documents, applications, auth |
+| `backend/crates/core` | Modules: jobs, profile, matching, documents, applications, auth, suggest. `data/` holds the city and school lists for suggestions (US Census and NCES IPEDS, public domain; see its README) |
 | `backend/crates/db` | Postgres pool and SQL migrations |
 | `frontend/` | Next.js app |
 | `scripts/` | `dev.sh` (all developer commands) and `dev.ps1` (PowerShell forwarder) |

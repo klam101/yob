@@ -9,6 +9,7 @@ import { DateInput } from "@/components/ui/date-picker";
 import { SuggestInput } from "@/components/ui/suggest";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { SuggestKind } from "@/api/client";
 import { cn } from "cn";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -123,8 +124,17 @@ export function TextField({
   className,
   autoComplete,
   suggestions,
+  source,
+  onPick,
+  aliases,
 }: {
   label: string;
+  /** Extra words each suggestion is found by ("uk" for United Kingdom). */
+  aliases?: Record<string, string>;
+  /** Suggestions from the API instead: cities, schools, companies, job titles. */
+  source?: SuggestKind;
+  /** Handles a picked suggestion instead of `onChange` (to fill other fields from it). */
+  onPick?: (item: { value: string; detail?: string }) => void;
   /** Suggestions in a menu below, narrowed as you type (any text is allowed). */
   suggestions?: readonly string[];
   /** The field's name in the API, to show its error here. */
@@ -142,11 +152,14 @@ export function TextField({
   return (
     <Field label={label} hint={hint} error={error} required={required} className={className}>
       {(id, describedBy, invalid) =>
-        suggestions ? (
+        suggestions || source ? (
           <SuggestInput
             id={id}
             value={value}
             options={suggestions}
+            source={source}
+            onPick={onPick}
+            aliases={aliases}
             onChange={onChange}
             placeholder={placeholder}
             aria-invalid={invalid || undefined}

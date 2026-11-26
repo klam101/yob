@@ -1,7 +1,8 @@
 "use client";
 
 import { Popover as PopoverPrimitive } from "radix-ui";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { api, type SuggestKind } from "@/api/client";
 import { cn } from "cn";
 
 /** Lowercase, without apostrophes, so "bachelors" finds "Bachelor's". */
@@ -14,16 +15,23 @@ const fold = (s: string) => s.toLowerCase().replace(/['’]/g, "");
  * it. Ties keep the list's order, so put common choices first. Empty text
  * gives the first `limit` options.
  */
-export function rankSuggestions(options: readonly string[], query: string, limit = 8): string[] {
+export function rankSuggestions(
+  options: readonly string[],
+  query: string,
+  limit = 8,
+  /** Extra words an option is found by ("uk" for United Kingdom). */
+  aliases?: Record<string, string>,
+): string[] {
   const q = fold(query.trim());
   if (!q) return options.slice(0, limit);
   const tokens = q.split(/\s+/);
   const scored: [number, number, string][] = [];
   options.forEach((o, i) => {
     const f = fold(o);
-    const words = f.split(/[^a-z0-9]+/).filter(Boolean);
+    const extra = aliases?.[o] ? fold(aliases[o]) : "";
+    const words = `${f} ${extra}`.split(/[^a-z0-9]+/).filter(Boolean);
     let score: number | null = null;
-    if (f.startsWith(q)) score = 0;
+    if (f.startsWith(q) || extra.split(" ").includes(q)) score = 0;
     else if (tokens.every((t) => words.some((w) => w.startsWith(t)))) score = 1;
     else if (f.includes(q)) score = 2;
     if (score !== null) scored.push([score, i, o]);
@@ -70,16 +78,52 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 type InputProps = Omit<React.ComponentProps<"input">, "value" | "onChange" | "list" | "ref">;
 
+type Item = { value: string; detail?: string };
+
+/**
+ * Suggestions from the API (`/suggest/{kind}`) for what's typed, fetched a
+ * moment after typing stops; older requests are cancelled.
+ */
+function useRemote(kind: SuggestKind | undefined, query: string, enabled: boolean, limit: number) {
+  const [state, setState] = useState<{ key: string; items: Item[] } | null>(null);
+  const q = query.trim();
+  const key = `${kind}:${q}`;
+  useEffect(() => {
+    if (!kind || !enabled) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(async () => {
+      const { data } = await api
+        .GET("/suggest/{kind}", { params: { path: { kind }, query: { q, limit } }, signal: ctl.signal })
+        .catch(() => ({ data: undefined }));
+      if (!ctl.signal.aborted && data) {
+        setState({ key, items: data.map((d) => ({ value: d.value, detail: d.detail ?? undefined })) });
+      }
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      ctl.abort();
+    };
+  }, [kind, key, q, enabled, limit]);
+  // While the answer for this text is on its way, keep showing the last one.
+  return { items: state?.items ?? [], loading: !!kind && enabled && state?.key !== key };
+}
+
 /**
  * A text box with a suggestion menu that opens below it, in the app's own
  * style (light or dark with the theme). It shows a few options and narrows
  * them as you type, like a search box; any text is still allowed. Use this
  * for every suggestion list instead of a native `<datalist>`.
+ *
+ * Options come from a fixed list (`options`) or from the API (`source`:
+ * cities, schools, companies, job titles), for lists too big to send.
  */
 export function SuggestInput({
   value,
   onChange,
   options,
+  source,
+  onPick,
+  aliases,
   limit = 8,
   onKeyDown,
   onFocus,
@@ -88,7 +132,15 @@ export function SuggestInput({
 }: InputProps & {
   value: string;
   onChange: (v: string) => void;
-  options: readonly string[];
+  options?: readonly string[];
+  source?: SuggestKind;
+  /** Extra words each option is found by ("uk" for United Kingdom). */
+  aliases?: Record<string, string>;
+  /**
+   * Handles a picked option instead of `onChange` (to fill other fields from
+   * it, or to add it to a list as is).
+   */
+  onPick?: (item: Item) => void;
   /** How many options show at once. */
   limit?: number;
 }) {
@@ -96,13 +148,17 @@ export function SuggestInput({
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const items = rankSuggestions(options, value, limit);
+  const remote = useRemote(source, value, open, limit);
+  const items: Item[] = source
+    ? remote.items
+    : rankSuggestions(options ?? [], value, limit, aliases).map((v) => ({ value: v }));
   // Nothing to suggest, or the text already is the only match.
-  const useful = items.length > 0 && !(items.length === 1 && items[0] === value.trim());
+  const useful = items.length > 0 && !(items.length === 1 && items[0].value === value.trim());
   const shown = open && useful;
 
-  function pick(v: string) {
-    onChange(v);
+  function pick(item: Item) {
+    if (onPick) onPick(item);
+    else onChange(item.value);
     setOpen(false);
     setActive(-1);
   }
@@ -118,6 +174,7 @@ export function SuggestInput({
           aria-expanded={shown}
           aria-controls={shown ? `${id}-list` : undefined}
           aria-activedescendant={shown && active >= 0 ? `${id}-opt-${active}` : undefined}
+          aria-busy={source ? remote.loading : undefined}
           autoComplete="off"
           value={value}
           onChange={(e) => {
@@ -142,15 +199,21 @@ export function SuggestInput({
                 setActive(e.key === "ArrowDown" ? 0 : items.length - 1);
               } else {
                 const n = items.length;
-                setActive((a) => (e.key === "ArrowDown" ? (a >= n - 1 ? 0 : a + 1) : a <= 0 ? n - 1 : a - 1));
+                const down = e.key === "ArrowDown";
+                setActive((a) => (down ? (a >= n - 1 ? 0 : a + 1) : a <= 0 ? n - 1 : a - 1));
               }
-            } else if (e.key === "Enter" && shown && active >= 0 && active < items.length) {
+              return;
+            }
+            if (e.key === "Enter" && shown && active >= 0 && active < items.length) {
               e.preventDefault();
               pick(items[active]);
-            } else if (e.key === "Escape" && shown) {
+              return;
+            }
+            if (e.key === "Escape" && shown) {
               e.preventDefault();
               setOpen(false);
               setActive(-1);
+              return;
             }
             onKeyDown?.(e);
           }}
@@ -170,10 +233,15 @@ export function SuggestInput({
           }}
           className="z-50 max-h-(--radix-popover-content-available-height) w-max max-w-[min(26rem,calc(100vw-1rem))] min-w-(--radix-popover-trigger-width) origin-(--radix-popover-content-transform-origin) overflow-y-auto rounded-2xl border border-border/60 bg-popover p-1.5 text-popover-foreground shadow-raised outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
-          <div id={`${id}-list`} role="listbox" aria-label={props["aria-label"] ? `${props["aria-label"]} suggestions` : "Suggestions"}>
+          <div
+            id={`${id}-list`}
+            role="listbox"
+            aria-label={props["aria-label"] ? `${props["aria-label"]} suggestions` : "Suggestions"}
+            className={cn("transition-opacity", source && remote.loading && "opacity-70")}
+          >
             {items.map((o, i) => (
               <div
-                key={o}
+                key={`${o.value}|${o.detail ?? ""}`}
                 id={`${id}-opt-${i}`}
                 role="option"
                 aria-selected={i === active}
@@ -186,7 +254,8 @@ export function SuggestInput({
                   i === active && "bg-muted text-foreground",
                 )}
               >
-                <Highlight text={o} query={value} />
+                <Highlight text={o.value} query={value} />
+                {o.detail && <div className="text-xs text-muted-foreground">{o.detail}</div>}
               </div>
             ))}
           </div>

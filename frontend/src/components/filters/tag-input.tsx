@@ -2,12 +2,15 @@
 
 import { Plus, X } from "lucide-react";
 import { useId, useState } from "react";
+import type { SuggestKind } from "@/api/client";
+import { SuggestInput } from "@/components/ui/suggest";
 import { cn } from "cn";
 
 /**
  * A list of short entries typed one at a time: Enter (or a separator key)
  * adds the text as a chip, Backspace in an empty box removes the last one.
- * Suggestions not yet chosen show below as one-click chips.
+ * Suggestions not yet chosen show below as one-click chips; with `source`,
+ * a menu below the box suggests from the API as you type.
  */
 export function TagInput({
   value,
@@ -18,6 +21,7 @@ export function TagInput({
   label,
   className,
   max = 30,
+  source,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
@@ -29,6 +33,8 @@ export function TagInput({
   label: string;
   className?: string;
   max?: number;
+  /** Suggestions from the API while typing: cities, schools, companies, job titles. */
+  source?: SuggestKind;
 }) {
   const id = useId();
   const [text, setText] = useState("");
@@ -45,6 +51,29 @@ export function TagInput({
   }
 
   const remove = (v: string) => onChange(value.filter((x) => x !== v));
+  const typed = (v: string) => {
+    if (separators.some((s) => v.includes(s))) add(v);
+    else setText(v);
+  };
+  const box = {
+    id,
+    "aria-label": label,
+    value: text,
+    placeholder: value.length ? "" : placeholder,
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (text.trim()) add(text);
+      } else if (e.key === "Backspace" && !text && value.length) {
+        onChange(value.slice(0, -1));
+      }
+    },
+    onBlur: () => {
+      if (text.trim()) add(text);
+    },
+    className:
+      "h-8 min-w-32 flex-1 bg-transparent px-1.5 text-base outline-none placeholder:text-muted-foreground md:text-sm",
+  };
   const open = suggestions.filter((s) => !has(s));
 
   return (
@@ -66,27 +95,20 @@ export function TagInput({
             </button>
           </span>
         ))}
-        <input
-          id={id}
-          aria-label={label}
-          value={text}
-          placeholder={value.length ? "" : placeholder}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (separators.some((s) => v.includes(s))) add(v);
-            else setText(v);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              if (text.trim()) add(text);
-            } else if (e.key === "Backspace" && !text && value.length) {
-              onChange(value.slice(0, -1));
-            }
-          }}
-          onBlur={() => text.trim() && add(text)}
-          className="h-8 min-w-32 flex-1 bg-transparent px-1.5 text-base outline-none placeholder:text-muted-foreground md:text-sm"
-        />
+        {source ? (
+          <SuggestInput
+            {...box}
+            source={source}
+            onChange={typed}
+            // A picked "Austin, TX" or "Engineer, Payments" is one entry.
+            onPick={({ value: v }) => {
+              if (!has(v) && value.length < max) onChange([...value, v]);
+              setText("");
+            }}
+          />
+        ) : (
+          <input {...box} onChange={(e) => typed(e.target.value)} />
+        )}
       </div>
       {open.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

@@ -12,6 +12,7 @@ import type {
 } from "@/api/client";
 import { useState } from "react";
 import { DEGREES, FIELDS_OF_STUDY } from "@/lib/degrees";
+import { COUNTRIES, COUNTRY_ALIASES, STATE_OPTIONS, isUs, stateCode } from "@/lib/places";
 import {
   BulletList,
   CheckField,
@@ -140,9 +141,23 @@ export function PersonalEditor({
           name="city"
           value={p.city}
           onChange={set("city")}
+          source="location"
+          // "Clemson, SC" fills the city and the state.
+          onPick={({ value }) => {
+            const [city, region] = value.split(/,\s*/);
+            onChange({ ...p, city, region: region ?? p.region });
+          }}
           className="sm:col-span-2"
         />
-        <TextField label="State" name="region" value={p.region} onChange={set("region")} />
+        <TextField
+          label="State"
+          name="region"
+          value={p.region}
+          onChange={set("region")}
+          // US states while the country is the US; elsewhere any region.
+          suggestions={isUs(p.country) ? STATE_OPTIONS : undefined}
+          onPick={({ value }) => onChange({ ...p, region: stateCode(value) })}
+        />
         <TextField
           label="ZIP code"
           name="postal_code"
@@ -150,7 +165,14 @@ export function PersonalEditor({
           onChange={set("postal_code")}
         />
       </div>
-      <TextField label="Country" name="country" value={p.country} onChange={set("country")} />
+      <TextField
+        label="Country"
+        name="country"
+        value={p.country}
+        onChange={set("country")}
+        suggestions={COUNTRIES}
+        aliases={COUNTRY_ALIASES}
+      />
       <TextField
         label="Headline"
         name="headline"
@@ -235,9 +257,14 @@ export function EducationEditor({
           <TextField
             label="School"
             name="school"
+            source="school"
             required
             value={e.school}
             onChange={(school) => update({ school })}
+            // The school's city fills an empty location.
+            onPick={({ value: school, detail }) =>
+              update(e.location || !detail ? { school } : { school, location: detail })
+            }
           />
           <div className={grid}>
             <TextField
@@ -273,6 +300,7 @@ export function EducationEditor({
             <TextField
               label="Location"
               name="location"
+              source="location"
               value={e.location}
               onChange={(location) => update({ location })}
               className="sm:col-span-2"
@@ -356,6 +384,13 @@ export function ExperienceEditor({
   );
 }
 
+/** A title with "Intern" in it makes an unset job type "Internship". */
+function withInternship(e: Experience, title: string): Partial<Experience> {
+  return !e.employment_type && /\bintern(ship)?\b/i.test(title)
+    ? { title, employment_type: "Internship" }
+    : { title };
+}
+
 /** "I currently work here" is its own choice: an empty end date alone isn't. */
 function ExperienceFields({
   e,
@@ -373,13 +408,15 @@ function ExperienceFields({
         <TextField
           label="Job title"
           name="title"
+          source="title"
           required
           value={e.title}
-          onChange={(title) => update({ title })}
+          onChange={(title) => update(withInternship(e, title))}
         />
         <TextField
           label="Company"
           name="company"
+          source="company"
           required
           value={e.company}
           onChange={(company) => update({ company })}
@@ -387,6 +424,7 @@ function ExperienceFields({
         <TextField
           label="Location"
           name="location"
+          source="location"
           value={e.location}
           onChange={(location) => update({ location })}
         />

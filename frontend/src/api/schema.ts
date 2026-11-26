@@ -594,6 +594,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/suggest/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggestions for a field as the user types: cities ("City, ST"),
+         *     schools, companies or job titles, best first. Values already in the
+         *     user's profile that match come first.
+         */
+        get: operations["get_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1499,6 +1520,13 @@ export interface components {
              * @description Companies not checked yet.
              */
             pending: number;
+        };
+        /** @enum {string} */
+        SuggestKind: "location" | "school" | "company" | "title";
+        Suggestion: {
+            /** @description A second line, like a school's "Clemson, SC". */
+            detail?: string | null;
+            value: string;
         };
         /** @description The work authorization questions, shared with `application_answers`. */
         WorkAuthorization: {
@@ -2636,6 +2664,41 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_suggestions: {
+        parameters: {
+            query?: {
+                /** @description What's typed so far; empty gives the most common entries. */
+                q?: string;
+                /** @description How many to return (1 to 20, default 8). */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Which list */
+                kind: components["schemas"]["SuggestKind"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Suggestion"][];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

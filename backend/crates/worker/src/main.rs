@@ -21,6 +21,8 @@ const SLOTS: usize = 6;
 /// Pause when nothing is due. "Check now" in the app waits at most this long.
 const IDLE: Duration = Duration::from_secs(15);
 const PRUNE_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+/// How often the title and company suggestions are rebuilt from the jobs.
+const SUGGEST_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -72,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
     let stop = shutdown::signal();
     tokio::pin!(stop);
     let mut last_prune: Option<Instant> = None;
+    let mut last_suggest: Option<Instant> = None;
     // Each check runs as its own task holding one slot, so a slow board (a
     // large Workday tenant takes minutes) never holds up the others.
     let slots = Arc::new(Semaphore::new(SLOTS));
@@ -85,6 +88,19 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => tracing::warn!(error = %e, "prune failed"),
             }
             last_prune = Some(Instant::now());
+        }
+        if last_suggest.is_none_or(|t| t.elapsed() >= SUGGEST_EVERY) {
+            // A few seconds of reading; runs beside the checks.
+            let db = db.clone();
+            tokio::spawn(async move {
+                match yob_core::suggest::rebuild(&db).await {
+                    Ok((titles, companies)) => {
+                        tracing::info!(titles, companies, "rebuilt type-ahead suggestions")
+                    }
+                    Err(e) => tracing::warn!(error = %e, "rebuilding suggestions failed"),
+                }
+            });
+            last_suggest = Some(Instant::now());
         }
 
         let slot = tokio::select! {

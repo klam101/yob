@@ -78,6 +78,7 @@ const tags = (key: FilterKey, label: string, placeholder: string, hint: string):
           value={listOf(draft, key)}
           onChange={(v) => set(withValue(draft, key, v))}
           separators={key === "location" ? [";"] : [","]}
+          source={key === "location" ? "location" : undefined}
           placeholder={placeholder}
         />
         <p className="text-sm text-muted-foreground">{hint}</p>
