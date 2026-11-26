@@ -28,6 +28,7 @@ import {
   textToSkills,
 } from "./editors";
 import { ResumeUpload } from "./resume-upload";
+import { scrollToTop } from "@/lib/scroll";
 import { IconButton } from "./fields";
 import { fillReviewed, isEmpty, loadProfile, save } from "./save";
 import { Section } from "./section";
@@ -110,7 +111,7 @@ export function ProfileEditor({ initial }: { initial: Profile }) {
             if (d.profile_filled) {
               const fresh = await loadProfile();
               if (fresh) setProfile(fresh);
-              window.scrollTo({ top: 0 });
+              scrollToTop();
             } else {
               router.push(`/resume/edit/${d.resume_id}?update=1`);
             }

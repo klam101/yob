@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import { savePreferences, skipPreferences } from "./api";
 import { STEPS } from "./questions";
+import { scrollToTop } from "@/lib/scroll";
 
 /**
  * The onboarding questionnaire, one topic per step. Nothing is saved until
@@ -32,7 +33,7 @@ export function Wizard({ initial }: { initial: Preferences }) {
   function go(to: number) {
     setStep(to);
     setError(null);
-    window.scrollTo({ top: 0 });
+    scrollToTop();
     // Move focus to the new step's heading for keyboard and screen-reader users.
     requestAnimationFrame(() => heading.current?.focus());
   }

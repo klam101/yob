@@ -1,11 +1,12 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Geist_Mono, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/shell/theme";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// The brand typeface, self-hosted by Next at build time.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
 });
 
@@ -19,15 +20,22 @@ export const metadata: Metadata = {
   description: "Personal job search: one feed of fresh jobs, tailored documents, autofill.",
 };
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f0e4" },
+    { media: "(prefers-color-scheme: dark)", color: "#15120f" },
+  ],
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       // next-themes sets the theme class before React hydrates.
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
+      className={`${spaceGrotesk.variable} ${geistMono.variable} h-full`}
     >
-      <body className="min-h-full">
+      <body>
         <ThemeProvider>
           <TooltipProvider delayDuration={300}>
             {children}

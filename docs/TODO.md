@@ -150,6 +150,9 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [ ] Optional "Improve with AI" pass over the draft with `qwen3:8b` once Ollama is set up
 - [ ] Back up `PROFILE_ENCRYPTION_KEY`: without it, saved equal-employment answers can't be read
 
+- [x] Brand applied (docs/BRAND.md): Gules & Or tokens in globals.css, Space Grotesk, yob logo in the rail, login and onboarding, favicon, Apple icon and web manifest, light/dark toggle in the rail (light by default)
+- [ ] Style pass over the rest of the app with the brand (page headers, empty states, badges, the job card), using gold sparingly
+
 ### 5. Matching
 - [ ] Embed jobs and profile with `qwen3-embedding:4b` into pgvector
 - [ ] Shortlist by vector similarity, then score the top jobs with `qwen3:8b` (score, breakdown, reasons)

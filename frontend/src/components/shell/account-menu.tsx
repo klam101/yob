@@ -3,7 +3,7 @@
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { type ThemeChoice, centerOf, useThemeSwitch } from "./use-theme-switch";
 
 // True only after hydration, so nothing mismatches the server render.
 const subscribe = () => () => {};
@@ -27,7 +28,10 @@ function useMounted() {
 /** The account button: who's logged in, the theme, and Log out. */
 export function AccountMenu() {
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const { theme } = useTheme();
+  const switchTheme = useThemeSwitch();
+  // Where the menu was opened from: the reveal starts there.
+  const trigger = useRef<HTMLButtonElement>(null);
   const mounted = useMounted();
   const [email, setEmail] = useState<string | null>(null);
 
@@ -62,7 +66,7 @@ export function AccountMenu() {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Account and theme">
+            <Button ref={trigger} variant="ghost" size="icon" aria-label="Account and theme">
               {initial ? (
                 <span className="flex size-7 items-center justify-center rounded-full bg-primary/12 text-xs font-semibold text-primary dark:bg-primary/20">
                   {initial}
@@ -83,7 +87,10 @@ export function AccountMenu() {
           </>
         )}
         <DropdownMenuLabel className="text-xs text-muted-foreground">Theme</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={mounted ? theme : undefined} onValueChange={setTheme}>
+        <DropdownMenuRadioGroup
+          value={mounted ? theme : undefined}
+          onValueChange={(v) => switchTheme(v as ThemeChoice, centerOf(trigger.current))}
+        >
           <DropdownMenuRadioItem value="light">
             <Sun /> Light
           </DropdownMenuRadioItem>

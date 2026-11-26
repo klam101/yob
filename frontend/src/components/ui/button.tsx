@@ -4,8 +4,8 @@ import { cn } from "cn"
 import { Slot } from "radix-ui"
 
 // HeroUI-style buttons: rounded, soft press (scale) and tinted variants.
-//   default  solid indigo
-//   flat     indigo tint with indigo text
+//   default  solid primary (brand red; gold in dark mode)
+//   flat     primary tint with primary text
 //   bordered outline
 //   light    no background until hover
 //   ghost    neutral hover

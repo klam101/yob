@@ -5,15 +5,18 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * yob theme. Colors are CSS variables so light and dark swap in one place.
- * Style direction: soft and rounded (HeroUI-like): large radii, soft shadows,
- * tinted "flat" variants, one indigo accent.
+ * yob theme, from the brand (docs/BRAND.md): Gules & Or. Light mode is red
+ * on cream; dark mode is gold on charcoal. Colors are CSS variables so light
+ * and dark swap in one place. Style direction: soft and rounded (HeroUI-like):
+ * large radii, soft shadows, tinted "flat" variants.
+ * Gold is for the logo, the main call to action in dark mode and small
+ * highlights; never gold text on cream (too little contrast).
  */
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-heading: var(--font-space-grotesk);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -35,6 +38,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-gold: var(--yob-or);
+  --color-gules: var(--yob-gules);
 
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.75);
@@ -49,63 +54,71 @@
 }
 
 :root {
+  /* Brand palette */
+  --yob-gules: #a93127; /* primary red: icon tile, light-mode wordmark, primary buttons */
+  --yob-or: #d4a63a; /* gold: the yale, dark-mode wordmark, highlights */
+  --yob-cream: #f6f0e4; /* light-mode background */
+  --yob-charcoal: #15120f; /* dark-mode background */
+  --yob-ink: #1f1a17; /* light-mode text */
+  --yob-parchment: #fff8f3; /* dark-mode text */
+
   --radius: 0.75rem;
 
-  --background: oklch(0.985 0.003 275);
-  --foreground: oklch(0.21 0.02 275);
-  --card: oklch(1 0 0);
+  --background: var(--yob-cream);
+  --foreground: var(--yob-ink);
+  --card: #fffcf7;
   --card-foreground: var(--foreground);
-  --popover: oklch(1 0 0);
+  --popover: #fffcf7;
   --popover-foreground: var(--foreground);
 
-  /* Indigo accent */
-  --primary: oklch(0.52 0.21 276);
-  --primary-foreground: oklch(0.99 0 0);
+  --primary: var(--yob-gules);
+  --primary-foreground: var(--yob-parchment);
 
-  --secondary: oklch(0.955 0.006 275);
-  --secondary-foreground: oklch(0.3 0.02 275);
-  --muted: oklch(0.955 0.006 275);
-  --muted-foreground: oklch(0.52 0.02 275);
-  --accent: oklch(0.95 0.025 276);
-  --accent-foreground: oklch(0.42 0.18 276);
+  --secondary: #efe6d6;
+  --secondary-foreground: #3a302a;
+  --muted: #efe6d6;
+  --muted-foreground: #6b5f56;
+  --accent: #f4e0da;
+  --accent-foreground: #8c2820;
 
-  --destructive: oklch(0.58 0.21 25);
-  --success: oklch(0.6 0.15 155);
+  /* Status colors, kept clearly apart from the brand red. */
+  --destructive: #e5322d;
+  --success: #2e9e5b;
   --warning: oklch(0.72 0.16 70);
 
-  --border: oklch(0.915 0.008 275);
-  --input: oklch(0.915 0.008 275);
-  --ring: oklch(0.52 0.21 276);
+  --border: #e3d8c5;
+  --input: #ddd1bc;
+  --ring: var(--yob-gules);
 
-  --shadow-soft: 0 1px 2px oklch(0.2 0.02 275 / 0.04), 0 2px 12px -2px oklch(0.2 0.02 275 / 0.06);
-  --shadow-raised: 0 2px 4px oklch(0.2 0.02 275 / 0.05), 0 12px 32px -8px oklch(0.2 0.02 275 / 0.16);
+  --shadow-soft: 0 1px 2px oklch(0.25 0.03 50 / 0.05), 0 2px 12px -2px oklch(0.25 0.03 50 / 0.07);
+  --shadow-raised: 0 2px 4px oklch(0.25 0.03 50 / 0.06), 0 12px 32px -8px oklch(0.25 0.03 50 / 0.18);
 }
 
 .dark {
-  --background: oklch(0.155 0.012 275);
-  --foreground: oklch(0.95 0.005 275);
-  --card: oklch(0.2 0.014 275);
+  --background: var(--yob-charcoal);
+  --foreground: var(--yob-parchment);
+  --card: #1f1b17;
   --card-foreground: var(--foreground);
-  --popover: oklch(0.22 0.014 275);
+  --popover: #25201b;
   --popover-foreground: var(--foreground);
 
-  --primary: oklch(0.68 0.16 276);
-  --primary-foreground: oklch(0.16 0.02 275);
+  --primary: var(--yob-or);
+  --primary-foreground: var(--yob-charcoal);
 
-  --secondary: oklch(0.26 0.014 275);
-  --secondary-foreground: oklch(0.9 0.005 275);
-  --muted: oklch(0.26 0.014 275);
-  --muted-foreground: oklch(0.7 0.015 275);
-  --accent: oklch(0.3 0.06 276);
-  --accent-foreground: oklch(0.85 0.09 276);
+  --secondary: #2a251f;
+  --secondary-foreground: #ede4d8;
+  --muted: #2a251f;
+  --muted-foreground: #b3a796;
+  --accent: #3a2f18;
+  --accent-foreground: #e9c873;
 
-  --destructive: oklch(0.68 0.18 22);
-  --success: oklch(0.72 0.15 155);
+  --destructive: #f0524c;
+  --success: #4cc07d;
   --warning: oklch(0.8 0.14 75);
 
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.68 0.16 276);
+  --border: rgb(255 248 243 / 10%);
+  --input: rgb(255 248 243 / 14%);
+  --ring: var(--yob-or);
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 2px 12px -2px oklch(0 0 0 / 0.3);
   --shadow-raised: 0 2px 4px oklch(0 0 0 / 0.35), 0 12px 32px -8px oklch(0 0 0 / 0.55);
@@ -115,15 +128,61 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /*
+   * The body scrolls, not the window: a window scrollbar is left out of
+   * view-transition snapshots, so it would change color instantly while the
+   * rest of the page animates on a theme switch. The gutter stays reserved so
+   * nothing shifts when a dialog locks scrolling.
+   */
   html {
-    @apply font-sans;
+    @apply h-full overflow-hidden font-sans;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply h-full overflow-y-auto bg-background text-foreground antialiased;
+    scrollbar-gutter: stable;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+/*
+ * Light/dark switch: the new theme spreads in a circle from the control that
+ * was used (`useThemeSwitch`, which sets --theme-x, --theme-y, --theme-r).
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: theme-reveal 500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--theme-r, 150%) at var(--theme-x, 50%) var(--theme-y, 50%));
+  }
+}
+/* With reduced motion: a short crossfade, nothing moves. */
+html.theme-fade::view-transition-old(root) {
+  animation: theme-fade-out 200ms ease-out both;
+}
+html.theme-fade::view-transition-new(root) {
+  animation: theme-fade-in 200ms ease-out both;
+}
+@keyframes theme-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes theme-fade-in {
+  from {
+    opacity: 0;
   }
 }
 

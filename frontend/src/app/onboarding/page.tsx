@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { serverApi } from "@/api/server";
 import { ApiError } from "@/components/jobs/feed-states";
 import { Wizard } from "@/components/preferences/wizard";
+import { Logo } from "@/components/shell/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata = { title: "Set up your search" };
@@ -13,9 +14,7 @@ export default function OnboardingPage() {
     <main className="min-h-dvh bg-muted/40 px-4 py-8 sm:py-14">
       <div className="mx-auto w-full max-w-2xl space-y-8">
         <div className="space-y-4">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-soft">
-            y
-          </span>
+          <Logo height={40} />
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">What are you looking for?</h1>
             <p className="text-muted-foreground">
