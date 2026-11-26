@@ -23,6 +23,8 @@ const IDLE: Duration = Duration::from_secs(15);
 const PRUNE_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 /// How often the title and company suggestions are rebuilt from the jobs.
 const SUGGEST_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// Rest between company-facts rounds once every company is up to date.
+const FACTS_IDLE: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -69,6 +71,27 @@ async fn main() -> anyhow::Result<()> {
     // Finds new company boards slowly in the background; progress is saved
     // per page, so stopping it at any point is safe.
     let crawl = tokio::spawn(discover::run_common_crawl(db.clone(), fetcher.clone()));
+    // Company facts from Wikidata for the Company filters: a few hundred
+    // companies at a time, then rests once every company is up to date.
+    let facts = {
+        let (db, fetcher) = (db.clone(), fetcher.clone());
+        tokio::spawn(async move {
+            loop {
+                let rest = match yob_core::jobs::company_facts::refresh(&db, &fetcher, 400).await {
+                    Ok((0, _)) => FACTS_IDLE,
+                    Ok((checked, matched)) => {
+                        tracing::info!(checked, matched, "looked up company facts");
+                        Duration::from_secs(60)
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "company facts lookup failed");
+                        FACTS_IDLE
+                    }
+                };
+                tokio::time::sleep(rest).await;
+            }
+        })
+    };
     tracing::info!("worker started; checking companies as they come due");
 
     let stop = shutdown::signal();
@@ -161,6 +184,7 @@ async fn main() -> anyhow::Result<()> {
     // the company is checked again later.
     running.abort_all();
     crawl.abort();
+    facts.abort();
     tracing::info!("worker stopped");
     Ok(())
 }

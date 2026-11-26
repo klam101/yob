@@ -6,8 +6,11 @@
 //! job boards with public APIs are read and de-duplicated against them
 //! (`feeds`), and the API only ever reads the stored jobs (`store`).
 
+pub mod company_facts;
 pub mod discover;
+pub mod extract;
 pub mod feeds;
+pub mod functions;
 pub mod http;
 pub mod ingest;
 pub mod model;
@@ -19,5 +22,6 @@ pub mod store;
 
 pub use http::{FetchError, Fetcher};
 pub use model::{
-    EmploymentType, Feed, NormalizedJob, Platform, SalaryPeriod, Seniority, Source, Workplace,
+    ApplyProcess, EmploymentType, Feed, NormalizedJob, Platform, SalaryPeriod, Seniority, Source,
+    Workplace,
 };

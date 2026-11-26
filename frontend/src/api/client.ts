@@ -22,6 +22,7 @@ export type JobSummary = Schemas["JobSummary"];
 export type JobDetail = Schemas["JobDetail"];
 export type JobsPage = Schemas["JobsPage"];
 export type Facets = Schemas["Facets"];
+export type Vocabulary = Schemas["Vocabulary"];
 export type Match = Schemas["Match"];
 export type MatchLabel = Schemas["MatchLabel"];
 export type Workplace = Schemas["Workplace"];

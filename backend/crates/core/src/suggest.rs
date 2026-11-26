@@ -27,14 +27,31 @@ pub enum SuggestKind {
     School,
     Company,
     Title,
+    /// The job feed's search box: job titles (with related ones, "coder" ->
+    /// "Software Developer"), then companies. Each says which it is.
+    Search,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Suggestion {
     pub value: String,
-    /// A second line, like a school's "Clemson, SC".
+    /// A second line, like a school's "Clemson, SC" or a company's "42 open
+    /// jobs".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// What it is, when a list mixes kinds (`search`: title or company).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<SuggestKind>,
+}
+
+impl Suggestion {
+    fn new(value: String, detail: Option<String>) -> Self {
+        Self {
+            value,
+            detail,
+            kind: None,
+        }
+    }
 }
 
 /// At most this many come back.
@@ -168,10 +185,7 @@ static SCHOOLS: LazyLock<Vec<Entry>> = LazyLock::new(|| {
 
 fn search_list(list: &[Entry], query: &str, limit: usize) -> Vec<Suggestion> {
     let q = fold(query);
-    let take = |e: &Entry| Suggestion {
-        value: e.value.clone(),
-        detail: e.detail.clone(),
-    };
+    let take = |e: &Entry| Suggestion::new(e.value.clone(), e.detail.clone());
     if q.is_empty() {
         let mut all: Vec<&Entry> = list.iter().collect();
         all.sort_by_key(|e| std::cmp::Reverse(e.weight));
@@ -222,17 +236,22 @@ fn detail_for(list: &[Entry], value: &str) -> Option<String> {
 
 // --- terms from the job data -------------------------------------------------------
 
+/// Values of one kind in `suggest_terms` matching `query`, with their weight
+/// (open jobs), best first.
 async fn search_terms(
     pool: &PgPool,
     kind: &str,
     query: &str,
     limit: usize,
-) -> sqlx::Result<Vec<Suggestion>> {
+) -> sqlx::Result<Vec<(String, i32)>> {
     let q = fold(query);
     let limit = limit as i64;
-    let rows: Vec<(String,)> = if q.is_empty() {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(String, i32)> = if q.is_empty() {
         sqlx::query_as(
-            "SELECT value FROM suggest_terms WHERE kind = $1 ORDER BY weight DESC, value LIMIT $2",
+            "SELECT value, weight FROM suggest_terms WHERE kind = $1 ORDER BY weight DESC, value LIMIT $2",
         )
         .bind(kind)
         .bind(limit)
@@ -243,8 +262,8 @@ async fn search_terms(
         let longest = tokens.iter().max_by_key(|t| t.len()).copied().unwrap_or("");
         // Every typed word starts a word; the longest one's `LIKE` uses the
         // trigram index. Values starting with the text come first.
-        let mut found: Vec<(String,)> = sqlx::query_as(
-            "SELECT value FROM suggest_terms
+        let mut found: Vec<(String, i32)> = sqlx::query_as(
+            "SELECT value, weight FROM suggest_terms
              WHERE kind = $1
                AND search LIKE '%' || $2 || '%'
                AND (SELECT bool_and(search LIKE '% ' || t || '%') FROM unnest($3::text[]) t)
@@ -259,8 +278,8 @@ async fn search_terms(
         .fetch_all(pool)
         .await?;
         if (found.len() as i64) < limit && q.len() >= 4 {
-            let close: Vec<(String,)> = sqlx::query_as(
-                "SELECT value FROM suggest_terms
+            let close: Vec<(String, i32)> = sqlx::query_as(
+                "SELECT value, weight FROM suggest_terms
                  WHERE kind = $1 AND search % $2
                  ORDER BY similarity(search, $2) DESC, weight DESC
                  LIMIT $3",
@@ -271,20 +290,214 @@ async fn search_terms(
             .fetch_all(pool)
             .await?;
             for c in close {
-                if (found.len() as i64) < limit && !found.contains(&c) {
+                if (found.len() as i64) < limit && !found.iter().any(|f| f.0 == c.0) {
                     found.push(c);
                 }
             }
         }
         found
     };
-    Ok(rows
+    Ok(rows)
+}
+
+fn plain(rows: Vec<(String, i32)>) -> Vec<Suggestion> {
+    rows.into_iter()
+        .map(|(v, _)| Suggestion::new(v, None))
+        .collect()
+}
+
+// --- related titles ----------------------------------------------------------------
+
+/// Words people search with, and the job titles they mean. Rule-based for
+/// now: "coder" finds "Software Developer". (Matching by meaning with
+/// embeddings comes with the matching stage.)
+const RELATED: &[(&[&str], &[&str])] = &[
+    (
+        &[
+            "coder",
+            "programmer",
+            "developer",
+            "dev",
+            "swe",
+            "software dev",
+            "computer programmer",
+        ],
+        &["software engineer", "software developer"],
+    ),
+    (
+        &["sde"],
+        &["software development engineer", "software engineer"],
+    ),
+    (
+        &["tester", "qa", "quality"],
+        &[
+            "qa engineer",
+            "quality assurance engineer",
+            "test engineer",
+            "software test engineer",
+        ],
+    ),
+    (
+        &["frontend", "front end", "front-end"],
+        &[
+            "frontend engineer",
+            "front end engineer",
+            "front end developer",
+        ],
+    ),
+    (
+        &["backend", "back end", "back-end"],
+        &["backend engineer", "back end engineer", "backend developer"],
+    ),
+    (
+        &["fullstack", "full stack"],
+        &[
+            "full stack engineer",
+            "full stack developer",
+            "full stack software engineer",
+        ],
+    ),
+    (
+        &["ml", "machine learning", "ai"],
+        &[
+            "machine learning engineer",
+            "ai engineer",
+            "applied scientist",
+        ],
+    ),
+    (
+        &["devops", "sre", "reliability"],
+        &[
+            "site reliability engineer",
+            "devops engineer",
+            "platform engineer",
+        ],
+    ),
+    (
+        &["pm"],
+        &["product manager", "project manager", "program manager"],
+    ),
+    (
+        &["ux", "ui"],
+        &["product designer", "ux designer", "ui ux designer"],
+    ),
+    (
+        &["data"],
+        &["data analyst", "data scientist", "data engineer"],
+    ),
+    (&["rn"], &["registered nurse"]),
+    (&["cna"], &["certified nursing assistant"]),
+    (
+        &["cpa"],
+        &["accountant", "staff accountant", "senior accountant"],
+    ),
+    (
+        &["it", "helpdesk", "help desk"],
+        &[
+            "it support specialist",
+            "help desk technician",
+            "it technician",
+        ],
+    ),
+    (
+        &["intern"],
+        &["software engineer intern", "software engineering intern"],
+    ),
+];
+
+/// Titles related to what's typed (folded), most related first. A key
+/// matches when the text is the start of it ("prog" -> "programmer") or the
+/// text has it as a word ("senior swe").
+pub fn related_titles(query: &str) -> Vec<&'static str> {
+    let q = fold(query);
+    if q.chars().count() < 2 {
+        return Vec::new();
+    }
+    let words: Vec<&str> = q.split(' ').collect();
+    let mut out: Vec<&'static str> = Vec::new();
+    for (keys, titles) in RELATED {
+        let hit = keys.iter().any(|k| {
+            let k = fold(k);
+            (q.chars().count() >= 3 && k.starts_with(&q)) || k == q || words.contains(&k.as_str())
+        });
+        if hit {
+            for t in *titles {
+                if !out.contains(t) {
+                    out.push(t);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The feed's search box: titles (direct matches, then related ones), then
+/// companies with their open-job counts.
+async fn search_box(pool: &PgPool, query: &str) -> sqlx::Result<Vec<Suggestion>> {
+    const TITLES: usize = 6;
+    const COMPANIES: usize = 3;
+    if fold(query).is_empty() {
+        return Ok(Vec::new());
+    }
+    // Related titles that exist in the job data, at most 3 of the 6 slots.
+    let wanted: Vec<String> = related_titles(query)
+        .iter()
+        .map(|t| format!(" {}", fold(t)))
+        .collect();
+    let related: Vec<(String, i32)> = if wanted.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as(
+            "SELECT value, weight FROM suggest_terms
+             WHERE kind = 'title' AND search = ANY($1)
+             ORDER BY array_position($1, search)
+             LIMIT 3",
+        )
+        .bind(&wanted)
+        .fetch_all(pool)
+        .await?
+    };
+    let direct = search_terms(pool, "title", query, TITLES).await?;
+    // Related titles the direct matches don't already include keep their
+    // slots at the end; direct matches fill the rest.
+    let shown: std::collections::HashSet<String> = direct.iter().map(|(v, _)| fold(v)).collect();
+    let related: Vec<String> = related
         .into_iter()
-        .map(|(value,)| Suggestion {
-            value,
-            detail: None,
+        .map(|(v, _)| v)
+        .filter(|v| !shown.contains(&fold(v)))
+        .collect();
+    let mut out: Vec<Suggestion> = direct
+        .into_iter()
+        .take(TITLES - related.len())
+        .map(|(v, _)| Suggestion {
+            kind: Some(SuggestKind::Title),
+            ..Suggestion::new(v, None)
         })
-        .collect())
+        .collect();
+    out.extend(related.into_iter().map(|v| Suggestion {
+        kind: Some(SuggestKind::Title),
+        ..Suggestion::new(v, Some("Related".into()))
+    }));
+    for (v, n) in search_terms(pool, "company", query, COMPANIES).await? {
+        out.push(Suggestion {
+            kind: Some(SuggestKind::Company),
+            ..Suggestion::new(v, Some(open_jobs(n)))
+        });
+    }
+    Ok(out)
+}
+
+/// "1 open job", "1,234 open jobs".
+fn open_jobs(n: i32) -> String {
+    let digits = n.max(0).to_string();
+    let mut with_commas = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            with_commas.push(',');
+        }
+        with_commas.push(c);
+    }
+    format!("{with_commas} open job{}", if n == 1 { "" } else { "s" })
 }
 
 /// Suggestions for `query`, best first. `own` are the user's own values for
@@ -297,6 +510,9 @@ pub async fn suggest(
     limit: usize,
     own: &[String],
 ) -> sqlx::Result<Vec<Suggestion>> {
+    if kind == SuggestKind::Search {
+        return search_box(pool, query).await;
+    }
     let limit = limit.clamp(1, MAX_LIMIT);
     let q = fold(query);
     let tokens: Vec<&str> = q.split(' ').filter(|t| !t.is_empty()).collect();
@@ -311,18 +527,16 @@ pub async fn suggest(
                 SuggestKind::School => detail_for(&SCHOOLS, v),
                 _ => None,
             };
-            out.push(Suggestion {
-                value: v.clone(),
-                detail,
-            });
+            out.push(Suggestion::new(v.clone(), detail));
         }
     }
     out.truncate(3.min(limit));
     let rest = match kind {
         SuggestKind::Location => search_list(&PLACES, query, limit),
         SuggestKind::School => search_list(&SCHOOLS, query, limit),
-        SuggestKind::Company => search_terms(pool, "company", query, limit).await?,
-        SuggestKind::Title => search_terms(pool, "title", query, limit).await?,
+        SuggestKind::Company => plain(search_terms(pool, "company", query, limit).await?),
+        SuggestKind::Title => plain(search_terms(pool, "title", query, limit).await?),
+        SuggestKind::Search => unreachable!("handled above"),
     };
     for s in rest {
         if out.len() >= limit {
@@ -524,6 +738,28 @@ mod tests {
         assert_eq!(r[0].value, "University of California-Los Angeles");
         let r = search_list(&SCHOOLS, "clemsn university", 8);
         assert!(r.iter().any(|s| s.value == "Clemson University"), "{r:?}");
+    }
+
+    #[test]
+    fn related_titles_by_word() {
+        let r = related_titles("coder");
+        assert_eq!(&r[..2], ["software engineer", "software developer"]);
+        assert!(
+            related_titles("prog").contains(&"software developer"),
+            "prefix of programmer"
+        );
+        assert!(related_titles("senior swe").contains(&"software engineer"));
+        assert!(related_titles("Front-End").contains(&"frontend engineer"));
+        assert!(related_titles("c").is_empty());
+        assert!(related_titles("plumber").is_empty());
+    }
+
+    #[test]
+    fn open_job_counts() {
+        assert_eq!(open_jobs(1), "1 open job");
+        assert_eq!(open_jobs(42), "42 open jobs");
+        assert_eq!(open_jobs(1234), "1,234 open jobs");
+        assert_eq!(open_jobs(1234567), "1,234,567 open jobs");
     }
 
     #[test]

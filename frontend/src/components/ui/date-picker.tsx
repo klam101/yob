@@ -34,6 +34,12 @@ export function monthYear(v: string | null | undefined) {
   return d ? `${MONTHS[d.getMonth()]} ${d.getFullYear()}` : "";
 }
 
+/** "2026-11-05" -> "Nov 5, 2026". */
+export function dayMonthYear(v: string | null | undefined) {
+  const d = toDate(v);
+  return d ? `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` : "";
+}
+
 /** "2026-11-25" -> "11/25/2026", what the box shows while it's edited. */
 const typed = (v: string | null | undefined) => {
   const d = toDate(v);
@@ -91,8 +97,8 @@ export function Calendar({
 }: {
   selected: Date | undefined;
   onSelect: (d: Date) => void;
-  /** "No exact day": the 1st of the month on show. */
-  onMonthOnly: (d: Date) => void;
+  /** "No exact day": the 1st of the month on show. Left out, there's no such button. */
+  onMonthOnly?: (d: Date) => void;
   onClear?: () => void;
 }) {
   const [month, setMonth] = useState(() => {
@@ -210,14 +216,16 @@ export function Calendar({
         ) : (
           <span />
         )}
-        <button
-          type="button"
-          onClick={() => onMonthOnly(month)}
-          title="Don't know the day? This keeps the 1st."
-          className="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-        >
-          No exact day: {MONTHS[month.getMonth()]} {y}
-        </button>
+        {onMonthOnly && (
+          <button
+            type="button"
+            onClick={() => onMonthOnly(month)}
+            title="Don't know the day? This keeps the 1st."
+            className="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+          >
+            No exact day: {MONTHS[month.getMonth()]} {y}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -236,11 +244,14 @@ export function DateInput({
   className,
   wrapperClassName,
   disabled,
+  exactDay = false,
   ...props
 }: InputProps & {
   value: string | null;
   onChange: (v: string | null) => void;
   wrapperClassName?: string;
+  /** Shows the day too ("Nov 1, 2026"), and the calendar has no "No exact day" button. */
+  exactDay?: boolean;
 }) {
   const id = useId();
   const [text, setText] = useState<string | null>(null); // non-null while editing
@@ -286,7 +297,7 @@ export function DateInput({
               inputMode="text"
               autoComplete="off"
               disabled={disabled}
-              value={text ?? monthYear(value)}
+              value={text ?? (exactDay ? dayMonthYear(value) : monthYear(value))}
               title={value ? `Saved as ${typed(value)}` : undefined}
               aria-describedby={describedBy}
               aria-invalid={props["aria-invalid"] || bad || undefined}
@@ -345,7 +356,7 @@ export function DateInput({
           <Calendar
             selected={toDate(value)}
             onSelect={pick}
-            onMonthOnly={(d) => pick(new Date(d.getFullYear(), d.getMonth(), 1))}
+            onMonthOnly={exactDay ? undefined : (d) => pick(new Date(d.getFullYear(), d.getMonth(), 1))}
             onClear={value ? () => pick(null) : undefined}
           />
         </PopoverPrimitive.Content>

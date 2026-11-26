@@ -639,19 +639,21 @@ async fn upsert_own<'a>(
              company_id, source_job_id, feed, title, department, locations, workplace,
              employment_type, seniority, salary_min, salary_max, salary_currency,
              salary_period, salary_source, posted_at, apply_url, description_html,
-             description_text, content_hash, in_scope, no_sponsorship, citizens_only, normalize_version
+             description_text, content_hash, in_scope, no_sponsorship, citizens_only, tags, min_years, job_function, normalize_version
          )
          SELECT c.id, x.source_job_id, $2, x.title, x.department, x.locations, x.workplace,
                 x.employment_type, x.seniority, x.salary_min, x.salary_max, x.salary_currency,
                 x.salary_period, x.salary_source, x.posted_at, x.apply_url, x.description_html,
-                x.description_text, x.content_hash, x.in_scope, x.no_sponsorship, x.citizens_only, $3
+                x.description_text, x.content_hash, x.in_scope, x.no_sponsorship, x.citizens_only,
+                x.tags, x.min_years, x.job_function, $3
          FROM jsonb_to_recordset($1::jsonb) AS x(
              company text, source_job_id text, title text, department text, locations text[],
              workplace text, employment_type text, seniority text, salary_min integer,
              salary_max integer, salary_currency text, salary_period text,
              salary_source text, posted_at timestamptz, apply_url text,
              description_html text, description_text text, content_hash text,
-             in_scope boolean, no_sponsorship boolean, citizens_only boolean
+             in_scope boolean, no_sponsorship boolean, citizens_only boolean,
+             tags text[], min_years smallint, job_function text
          )
          JOIN companies c ON c.platform = 'external' AND c.board_token = {EXTERNAL_TOKEN}
          ON CONFLICT (company_id, source_job_id) DO UPDATE SET
@@ -673,6 +675,9 @@ async fn upsert_own<'a>(
              in_scope = EXCLUDED.in_scope,
              no_sponsorship = EXCLUDED.no_sponsorship,
              citizens_only = EXCLUDED.citizens_only,
+             tags = EXCLUDED.tags,
+             min_years = EXCLUDED.min_years,
+             job_function = EXCLUDED.job_function,
              normalize_version = EXCLUDED.normalize_version,
              last_seen_at = now(),
              repost_count = jobs.repost_count + CASE WHEN jobs.closed_at IS NULL THEN 0 ELSE 1 END,
