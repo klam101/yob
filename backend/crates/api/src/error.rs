@@ -12,6 +12,10 @@ pub struct ApiError {
     #[serde(skip)]
     status: StatusCode,
     pub message: String,
+    /// The field the message is about, as a path like `experiences.2.end`,
+    /// when the error is about one field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 impl ApiError {
@@ -19,6 +23,7 @@ impl ApiError {
         Self {
             status,
             message: message.into(),
+            field: None,
         }
     }
 
@@ -82,6 +87,10 @@ impl From<yob_core::profile::ProfileError> for ApiError {
         use yob_core::profile::ProfileError as E;
         match err {
             E::Invalid(m) => Self::bad_request(m),
+            E::Field { field, message } => Self {
+                field: Some(field),
+                ..Self::bad_request(message)
+            },
             E::Database(e) => e.into(),
             E::Decrypt => {
                 tracing::error!(error = %err, "profile");

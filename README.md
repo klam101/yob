@@ -44,6 +44,7 @@ Optional: to add US federal jobs from USAJOBS, get a free key at https://develop
 | `dev` | Day-to-day development: db and redis in Docker; the API, worker and web app run locally in one terminal with labeled output. The web app hot-reloads; after Rust changes, Ctrl+C and run it again. Ctrl+C stops all three |
 | `stop` | Stops local API, worker and web processes left running, for example after closing the terminal during `dev` |
 | `typegen` | Regenerates `frontend/src/api/schema.ts` from the running API. Run it after any API change |
+| `parse-resume <file>` | Shows what the resume parser makes of a PDF, DOCX or text file: the cleaned text, the links found in it, the parsed profile and anything it couldn't place. `--raw` adds the text before cleanup |
 | `check` | Rust format check, clippy, frontend lint and TypeScript check. Run before committing |
 | `fmt` | Formats the Rust code |
 | `psql` | Opens a Postgres shell |
@@ -62,7 +63,7 @@ URLs: web app http://127.0.0.1:3000, API health http://127.0.0.1:8080/health, Op
 | --- | --- |
 | `backend/crates/api` | Axum HTTP server (`api` binary) |
 | `backend/crates/worker` | Background jobs (`worker` binary) |
-| `backend/crates/core` | Modules: jobs, profile, matching, documents, applications, auth |
+| `backend/crates/core` | Modules: jobs, profile, matching, documents, applications, auth, suggest. `data/` holds the city and school lists for suggestions (US Census and NCES IPEDS, public domain; see its README) |
 | `backend/crates/db` | Postgres pool and SQL migrations |
 | `frontend/` | Next.js app |
 | `scripts/` | `dev.sh` (all developer commands) and `dev.ps1` (PowerShell forwarder) |

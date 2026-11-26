@@ -37,6 +37,10 @@ Code
   typegen          Regenerate frontend/src/api/schema.ts from the running API
   check            Format check, clippy, frontend lint, TypeScript check
   fmt              Format the Rust code
+  parse-resume <file>
+                   Show what the resume parser makes of a PDF, DOCX or text
+                   file: cleaned text, links found, the parsed profile and
+                   what it couldn't place. Add --raw for the text before cleanup.
 
 Data
   psql             Open a Postgres shell
@@ -239,6 +243,16 @@ cmd_typegen() {
   (cd frontend && npm run typegen)
 }
 
+cmd_parse_resume() {
+  [ $# -ge 1 ] || fail "Usage: ./scripts/dev.sh parse-resume <file.pdf|file.docx|file.txt> [--raw]"
+  need cargo "Install Rust: winget install Rustlang.Rustup"
+  local file="$1"; shift
+  [ -f "$file" ] || fail "No such file: $file"
+  # An absolute path, since cargo runs from backend/.
+  file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+  (cd backend && cargo run -q -p yob-core --example parse_resume -- "$file" "$@")
+}
+
 cmd_check() {
   say "cargo fmt --check"
   (cd backend && cargo fmt --check)
@@ -340,6 +354,7 @@ case "$command" in
   typegen)  cmd_typegen ;;
   check)    cmd_check ;;
   fmt)      cmd_fmt ;;
+  parse-resume) cmd_parse_resume "$@" ;;
   discover) cmd_discover "$@" ;;
   psql)     cmd_psql ;;
   reset-password) cmd_reset_password ;;

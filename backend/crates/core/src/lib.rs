@@ -13,3 +13,4 @@ pub mod documents;
 pub mod jobs;
 pub mod matching;
 pub mod profile;
+pub mod suggest;

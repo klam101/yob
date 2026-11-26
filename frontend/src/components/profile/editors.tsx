@@ -11,22 +11,26 @@ import type {
   Skill,
 } from "@/api/client";
 import { useState } from "react";
+import { DEGREES, FIELDS_OF_STUDY } from "@/lib/degrees";
+import { COUNTRIES, COUNTRY_ALIASES, STATE_OPTIONS, isUs, stateCode } from "@/lib/places";
 import {
-  Field,
-  BulletsField,
+  BulletList,
   CheckField,
+  Field,
   ListEditor,
-  MonthField,
+  DateField,
   SelectField,
   TextAreaField,
   TextField,
   YesNoField,
+  formatMonth,
 } from "./fields";
 
 export const emptyEducation = (): Education => ({
   school: "",
   degree: "",
   field_of_study: "",
+  minor: "",
   gpa: "",
   location: "",
   start: null,
@@ -46,6 +50,7 @@ export const emptyExperience = (): Experience => ({
 
 export const emptyProject = (): Project => ({
   name: "",
+  summary: "",
   role: "",
   url: "",
   start: null,
@@ -55,6 +60,12 @@ export const emptyProject = (): Project => ({
 });
 
 const grid = "grid gap-4 sm:grid-cols-2";
+
+const PHONE_TYPES = [
+  { value: "mobile", label: "Mobile" },
+  { value: "home", label: "Home" },
+  { value: "work", label: "Work" },
+];
 
 export function PersonalEditor({
   value: p,
@@ -66,28 +77,51 @@ export function PersonalEditor({
   const set = (k: keyof Personal) => (v: string) => onChange({ ...p, [k]: v });
   return (
     <div className="space-y-4">
-      <div className={grid}>
+      <div className="grid gap-4 sm:grid-cols-3">
         <TextField
           label="First name"
+          name="first_name"
+          required
           value={p.first_name}
           onChange={set("first_name")}
           autoComplete="given-name"
         />
         <TextField
+          label="Middle name"
+          name="middle_name"
+          value={p.middle_name}
+          onChange={set("middle_name")}
+          autoComplete="additional-name"
+        />
+        <TextField
           label="Last name"
+          name="last_name"
+          required
           value={p.last_name}
           onChange={set("last_name")}
           autoComplete="family-name"
         />
-        <TextField
-          label="Email"
-          type="email"
-          value={p.email}
-          onChange={set("email")}
-          autoComplete="email"
+      </div>
+      <TextField
+        label="Email"
+        name="email"
+        required
+        type="email"
+        value={p.email}
+        onChange={set("email")}
+        autoComplete="email"
+      />
+      <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
+        <SelectField
+          label="Phone type"
+          name="phone_type"
+          value={p.phone_type}
+          onChange={set("phone_type")}
+          options={PHONE_TYPES}
         />
         <TextField
           label="Phone"
+          name="phone"
           type="tel"
           value={p.phone}
           onChange={set("phone")}
@@ -96,6 +130,7 @@ export function PersonalEditor({
       </div>
       <TextField
         label="Street address"
+        name="street"
         value={p.street}
         onChange={set("street")}
         autoComplete="street-address"
@@ -103,30 +138,50 @@ export function PersonalEditor({
       <div className="grid gap-4 sm:grid-cols-4">
         <TextField
           label="City"
+          name="city"
           value={p.city}
           onChange={set("city")}
+          source="location"
+          // "Clemson, SC" fills the city and the state.
+          onPick={({ value }) => {
+            const [city, region] = value.split(/,\s*/);
+            onChange({ ...p, city, region: region ?? p.region });
+          }}
           className="sm:col-span-2"
         />
-        <TextField label="State" value={p.region} onChange={set("region")} />
+        <TextField
+          label="State"
+          name="region"
+          value={p.region}
+          onChange={set("region")}
+          // US states while the country is the US; elsewhere any region.
+          suggestions={isUs(p.country) ? STATE_OPTIONS : undefined}
+          onPick={({ value }) => onChange({ ...p, region: stateCode(value) })}
+        />
         <TextField
           label="ZIP code"
+          name="postal_code"
           value={p.postal_code}
           onChange={set("postal_code")}
         />
       </div>
-      <TextField label="Country" value={p.country} onChange={set("country")} />
+      <TextField
+        label="Country"
+        name="country"
+        value={p.country}
+        onChange={set("country")}
+        suggestions={COUNTRIES}
+        aliases={COUNTRY_ALIASES}
+      />
       <TextField
         label="Headline"
+        name="headline"
         value={p.headline}
         onChange={set("headline")}
         placeholder="e.g. QA engineer"
         hint="A one-line title for yourself."
       />
-      <TextAreaField
-        label="Summary"
-        value={p.summary}
-        onChange={set("summary")}
-      />
+      <TextAreaField label="Summary" name="summary" value={p.summary} onChange={set("summary")} />
     </div>
   );
 }
@@ -151,9 +206,8 @@ export function LinksEditor({
       onChange={onChange}
       newItem={(): ProfileLink => ({ kind: "linkedin", url: "" })}
       addLabel="Add link"
-      itemLabel={(l) =>
-        LINK_KINDS.find((k) => k.value === l.kind)?.label ?? "Link"
-      }
+      itemLabel="Link"
+      reorder
       render={(l, update) => (
         <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
           <Field label="Type">
@@ -197,53 +251,77 @@ export function EducationEditor({
       onChange={onChange}
       newItem={emptyEducation}
       addLabel="Add education"
-      itemLabel={(e, i) => e.school || `Education ${i + 1}`}
+      itemLabel="Education"
       render={(e, update) => (
         <div className="space-y-4">
           <TextField
             label="School"
+            name="school"
+            source="school"
+            required
             value={e.school}
             onChange={(school) => update({ school })}
+            // Picking a school sets the location to its city.
+            onPick={({ value: school, detail }) => update(detail ? { school, location: detail } : { school })}
           />
           <div className={grid}>
             <TextField
               label="Degree"
+              name="degree"
+              suggestions={DEGREES}
               value={e.degree}
               onChange={(degree) => update({ degree })}
               placeholder="Bachelor of Science"
             />
             <TextField
-              label="Field of study"
+              label="Major"
+              name="field_of_study"
+              suggestions={FIELDS_OF_STUDY}
               value={e.field_of_study}
               onChange={(field_of_study) => update({ field_of_study })}
+              placeholder="Computer Science"
+            />
+            <TextField
+              label="Minor"
+              name="minor"
+              suggestions={FIELDS_OF_STUDY}
+              value={e.minor}
+              onChange={(minor) => update({ minor })}
             />
             <TextField
               label="GPA"
+              name="gpa"
               value={e.gpa}
               onChange={(gpa) => update({ gpa })}
               placeholder="3.5/4.0"
             />
             <TextField
               label="Location"
+              name="location"
+              source="location"
               value={e.location}
               onChange={(location) => update({ location })}
+              className="sm:col-span-2"
             />
-            <MonthField
+            <DateField
               label="Start"
+              name="start"
               value={e.start}
               onChange={(start) => update({ start })}
             />
-            <MonthField
+            <DateField
               label="End (or expected)"
+              name="end"
               value={e.end}
               onChange={(end) => update({ end })}
             />
           </div>
           <TextAreaField
             label="Details"
+            name="details"
             value={e.details}
             onChange={(details) => update({ details })}
-            hint="Honors, minor, relevant coursework."
+            hint="Honors, activities, relevant coursework."
           />
         </div>
       )}
@@ -259,6 +337,30 @@ const EMPLOYMENT_TYPES = [
   "Freelance",
 ] as const;
 
+/** Month number for comparing dates (`YYYY-MM-DD`, by month); an open end is "now". */
+function monthIndex(m: string | null, fallback: number) {
+  if (!m) return fallback;
+  const [y, mo] = m.split("-").map(Number);
+  return y * 12 + mo - 1;
+}
+
+/**
+ * Other entries whose dates overlap this one. Two jobs at once is normal,
+ * so this is a note to double-check, not an error.
+ */
+function overlaps(items: Experience[], i: number) {
+  const now = new Date();
+  const today = now.getFullYear() * 12 + now.getMonth();
+  const span = (e: Experience) =>
+    e.start ? [monthIndex(e.start, today), monthIndex(e.end, today)] : null;
+  const me = span(items[i]);
+  if (!me) return [];
+  return items.filter((other, j) => {
+    const o = j === i ? null : span(other);
+    return o !== null && o[0] < me[1] && me[0] < o[1];
+  });
+}
+
 export function ExperienceEditor({
   value,
   onChange,
@@ -271,56 +373,75 @@ export function ExperienceEditor({
       items={value}
       onChange={onChange}
       newItem={emptyExperience}
-      addLabel="Add experience"
-      itemLabel={(e, i) =>
-        [e.title, e.company].filter(Boolean).join(" · ") ||
-        `Experience ${i + 1}`
-      }
-      render={(e, update) => <ExperienceFields e={e} update={update} />}
+      addLabel="Add work experience"
+      itemLabel="Work experience"
+      render={(e, update, i) => (
+        <ExperienceFields e={e} update={update} overlapsWith={overlaps(value, i)} />
+      )}
     />
   );
+}
+
+/** A title with "Intern" in it makes an unset job type "Internship". */
+function withInternship(e: Experience, title: string): Partial<Experience> {
+  return !e.employment_type && /\bintern(ship)?\b/i.test(title)
+    ? { title, employment_type: "Internship" }
+    : { title };
 }
 
 /** "I currently work here" is its own choice: an empty end date alone isn't. */
 function ExperienceFields({
   e,
   update,
+  overlapsWith,
 }: {
   e: Experience;
   update: (patch: Partial<Experience>) => void;
+  overlapsWith: Experience[];
 }) {
   const [current, setCurrent] = useState(() => !!e.start && !e.end);
   return (
     <div className="space-y-4">
       <div className={grid}>
         <TextField
-          label="Title"
+          label="Job title"
+          name="title"
+          source="title"
+          required
           value={e.title}
-          onChange={(title) => update({ title })}
+          onChange={(title) => update(withInternship(e, title))}
         />
         <TextField
           label="Company"
+          name="company"
+          source="company"
+          required
           value={e.company}
           onChange={(company) => update({ company })}
         />
         <TextField
           label="Location"
+          name="location"
+          source="location"
           value={e.location}
           onChange={(location) => update({ location })}
         />
         <SelectField
-          label="Employment type"
+          label="Job type"
+          name="employment_type"
           value={e.employment_type}
           onChange={(employment_type) => update({ employment_type })}
           options={EMPLOYMENT_TYPES}
         />
-        <MonthField
+        <DateField
           label="Start"
+          name="start"
           value={e.start}
           onChange={(start) => update({ start })}
         />
-        <MonthField
+        <DateField
           label="End"
+          name="end"
           value={e.end}
           onChange={(end) => update({ end })}
           disabled={current}
@@ -334,10 +455,16 @@ function ExperienceFields({
           if (on) update({ end: null });
         }}
       />
-      <BulletsField
-        value={e.bullets}
-        onChange={(bullets) => update({ bullets })}
-      />
+      {overlapsWith.length > 0 && (
+        <p className="rounded-xl bg-warning/12 px-3 py-2 text-xs text-[color-mix(in_oklch,var(--warning),black_40%)] dark:text-warning">
+          These dates overlap with{" "}
+          {overlapsWith
+            .map((o) => `${o.company || o.title || "another job"} (${formatMonth(o.start)} – ${o.end ? formatMonth(o.end) : "Present"})`)
+            .join(" and ")}
+          . That&apos;s fine if you held both; otherwise check the dates.
+        </p>
+      )}
+      <BulletList value={e.bullets} onChange={(bullets) => update({ bullets })} />
     </div>
   );
 }
@@ -355,49 +482,63 @@ export function ProjectEditor({
       onChange={onChange}
       newItem={emptyProject}
       addLabel="Add project"
-      itemLabel={(p, i) => p.name || `Project ${i + 1}`}
+      itemLabel="Project"
+      reorder
       render={(p, update) => (
         <div className="space-y-4">
           <div className={grid}>
             <TextField
               label="Name"
+              name="name"
+              required
               value={p.name}
               onChange={(name) => update({ name })}
             />
             <TextField
               label="Your role"
+              name="role"
               value={p.role}
               onChange={(role) => update({ role })}
             />
             <TextField
-              label="Link"
-              value={p.url}
-              onChange={(url) => update({ url })}
+              label="One-line summary"
+              name="summary"
+              value={p.summary}
+              onChange={(summary) => update({ summary })}
+              placeholder="Online banking platform"
               className="sm:col-span-2"
             />
-            <MonthField
+            <TextField
+              label="Link"
+              name="url"
+              value={p.url}
+              onChange={(url) => update({ url })}
+              placeholder="github.com/you/project"
+              className="sm:col-span-2"
+            />
+            <DateField
               label="Start"
+              name="start"
               value={p.start}
               onChange={(start) => update({ start })}
             />
-            <MonthField
+            <DateField
               label="End"
+              name="end"
               value={p.end}
               onChange={(end) => update({ end })}
             />
           </div>
           <TextField
             label="Technologies"
+            name="skills"
             value={p.skills.join(", ")}
             onChange={(v) =>
               update({ skills: v.split(",").map((s) => s.trimStart()) })
             }
             hint="Comma-separated."
           />
-          <BulletsField
-            value={p.bullets}
-            onChange={(bullets) => update({ bullets })}
-          />
+          <BulletList value={p.bullets} onChange={(bullets) => update({ bullets })} />
         </div>
       )}
     />

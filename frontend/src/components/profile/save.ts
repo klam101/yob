@@ -6,19 +6,27 @@ import {
   type Profile,
   type ProfileLink,
   type Project,
-  type ResumeDraft,
+  type ResumeContent,
+  type ProfileSection,
+  type ResumeUploaded,
+  type ResumeUpdate,
   type Skill,
   api,
 } from "@/api/client";
 
-/** Saving a section answers with the saved (cleaned-up) value or a message. */
-type Saved<T> = { ok: true; value: T } | { ok: false; message: string };
+/**
+ * Saving answers with the saved (cleaned-up) value, or a message and, when
+ * it's about one field, that field's path (`experiences.2.end`).
+ */
+export type Saved<T> = { ok: true; value: T } | { ok: false; message: string; field?: string | null };
 
-async function done<T>(p: Promise<{ data?: T; error?: { message: string } }>): Promise<Saved<T>> {
+async function done<T>(
+  p: Promise<{ data?: T; error?: { message: string; field?: string | null } }>,
+): Promise<Saved<T>> {
   try {
     const { data, error } = await p;
     if (data !== undefined) return { ok: true, value: data };
-    return { ok: false, message: error?.message ?? "Couldn't save. Try again." };
+    return { ok: false, message: error?.message ?? "Couldn't save. Try again.", field: error?.field };
   } catch {
     return { ok: false, message: "Can't reach the API. Is the stack running?" };
   }
@@ -47,20 +55,46 @@ export const save = {
     ),
 };
 
+export const resumes = {
+  list: () => done(api.GET("/profile/resumes")),
+  update: (id: string, body: ResumeUpdate) =>
+    done(api.PATCH("/profile/resumes/{id}", { params: { path: { id } }, body })),
+  remove: async (id: string): Promise<Saved<null>> => {
+    try {
+      const { response, error } = await api.DELETE("/profile/resumes/{id}", { params: { path: { id } } });
+      if (response.ok) return { ok: true, value: null };
+      return { ok: false, message: error?.message ?? "Couldn't delete it. Try again." };
+    } catch {
+      return { ok: false, message: "Can't reach the API. Is the stack running?" };
+    }
+  },
+  detail: (id: string) => done(api.GET("/profile/resumes/{id}", { params: { path: { id } } })),
+  apply: (id: string, sections: ProfileSection[]) =>
+    done(api.POST("/profile/resumes/{id}/apply", { params: { path: { id } }, body: { sections } })),
+  saveContent: (id: string, body: ResumeContent) =>
+    done(api.PUT("/profile/resumes/{id}/content", { params: { path: { id } }, body })),
+  reparse: (id: string) => done(api.POST("/profile/resumes/{id}/reparse", { params: { path: { id } } })),
+};
+
+/** Hides the "filled from your resume" banner. */
+export async function fillReviewed() {
+  await api.POST("/profile/fill-reviewed").catch(() => undefined);
+}
+
 export async function loadProfile(): Promise<Profile | null> {
   const { data } = await api.GET("/profile").catch(() => ({ data: undefined }));
   return data ?? null;
 }
 
 /** Uploads a PDF or DOCX and returns the parsed draft (nothing is saved). */
-export async function uploadResume(file: File): Promise<Saved<ResumeDraft>> {
+export async function uploadResume(file: File): Promise<Saved<ResumeUploaded>> {
   if (file.size > 5 * 1024 * 1024) return { ok: false, message: "The file is larger than 5 MB." };
   const form = new FormData();
   form.append("file", file);
   try {
     const res = await fetch("/api/profile/resume", { method: "POST", body: form });
     const body = await res.json().catch(() => null);
-    if (res.ok && body) return { ok: true, value: body as ResumeDraft };
+    if (res.ok && body) return { ok: true, value: body as ResumeUploaded };
     if (res.status === 413) return { ok: false, message: "The file is larger than 5 MB." };
     return { ok: false, message: body?.message ?? "Couldn't read that file." };
   } catch {

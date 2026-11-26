@@ -370,6 +370,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile/fill-reviewed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hides the "filled from your resume, check what we read" banner. */
+        post: operations["fill_reviewed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profile/links": {
         parameters: {
             query?: never;
@@ -431,8 +448,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Uploads a resume (PDF or DOCX) and returns a draft profile read from it.
-         *     The file is kept; the profile isn't changed.
+         * Uploads a resume (PDF or DOCX): keeps the file and the content read from
+         *     it. The first resume also fills an empty profile; later ones don't change
+         *     it.
          */
         post: operations["upload_resume"];
         delete?: never;
@@ -448,9 +466,76 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Uploaded resumes, newest first. */
+        /** Uploaded resumes: the primary one first, then newest first. */
         get: operations["list_resumes"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resumes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A resume with its content. Resumes uploaded before contents were kept
+         *     are read from their file the first time.
+         */
+        get: operations["get_resume"];
+        put?: never;
+        post?: never;
+        /**
+         * Deletes a resume and its file. If it was the primary one, the newest
+         *     remaining resume becomes primary. The profile isn't changed.
+         */
+        delete: operations["delete_resume"];
+        options?: never;
+        head?: never;
+        /** Renames a resume, sets its target job title, or makes it the primary one. */
+        patch: operations["update_resume"];
+        trace?: never;
+    };
+    "/profile/resumes/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Updates the chosen profile sections from this resume's content (as
+         *     edited on its page). Personal details merge; other sections are
+         *     replaced. A section that doesn't pass validation is left as it was and
+         *     listed in `failed`; the rest are still saved.
+         */
+        post: operations["apply_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profile/resumes/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Saves a resume's edited content and returns it as stored. The profile
+         *     isn't changed.
+         */
+        put: operations["put_resume_content"];
         post?: never;
         delete?: never;
         options?: never;
@@ -475,6 +560,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile/resumes/{id}/reparse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reads the resume's file again, replacing its content (and any edits). */
+        post: operations["reparse_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profile/skills": {
         parameters: {
             query?: never;
@@ -485,6 +587,27 @@ export interface paths {
         get?: never;
         /** Replaces the skills, in the order given. Duplicates are dropped. */
         put: operations["put_skills"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/suggest/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggestions for a field as the user types: cities ("City, ST"),
+         *     schools, companies or job titles, best first. Values already in the
+         *     user's profile that match come first.
+         */
+        get: operations["get_suggestions"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -542,7 +665,24 @@ export interface components {
         };
         /** @description Error body returned by every endpoint on failure. */
         ApiError: {
+            /**
+             * @description The field the message is about, as a path like `experiences.2.end`,
+             *     when the error is about one field.
+             */
+            field?: string | null;
             message: string;
+        };
+        Applied: {
+            failed: components["schemas"]["SectionFailure"][];
+            updated: components["schemas"]["ProfileSection"][];
+        };
+        ApplyRequest: {
+            /** @description The profile sections to update from this resume. */
+            sections: components["schemas"]["ProfileSection"][];
+        };
+        ApplyResult: components["schemas"]["Applied"] & {
+            /** @description The profile after the update. */
+            profile: components["schemas"]["Profile"];
         };
         AuthStatus: {
             /** @description False until the first visit creates the account. */
@@ -563,6 +703,24 @@ export interface components {
             /** @description URLs that aren't Greenhouse, Lever or Ashby boards. */
             unrecognized: string[];
         };
+        /**
+         * @description Something the parser changed from what the file literally said, for the
+         *     user to check.
+         */
+        Change: {
+            after: string;
+            before: string;
+            /** @description The field it's about, as a path: `experiences.0.title`. */
+            field: string;
+            kind: components["schemas"]["ChangeKind"];
+            /**
+             * @description Values that put the field(s) back as the file had them. Empty when
+             *     there's nothing to undo (the old text was the broken one).
+             */
+            undo?: components["schemas"]["FieldValue"][];
+        };
+        /** @enum {string} */
+        ChangeKind: "capitals" | "small_caps" | "joined_word" | "icon_link" | "link_label" | "degree_split" | "class_of_may" | "link_from_file";
         CompaniesPage: {
             items: components["schemas"]["CompanySource"][];
             /** Format: int32 */
@@ -646,7 +804,10 @@ export interface components {
              */
             rejected: number;
         };
-        /** @description Dates are months, written `YYYY-MM` (what `<input type="month">` uses). */
+        /**
+         * @description Dates are whole days, written `YYYY-MM-DD` (a month alone, `YYYY-MM`, is
+         *     accepted as the 1st). The app shows month and year; the day is for forms.
+         */
         Education: {
             /** @default  */
             degree: string;
@@ -660,6 +821,8 @@ export interface components {
             gpa: string;
             /** @default  */
             location: string;
+            /** @default  */
+            minor: string;
             /** @default  */
             school: string;
             /** @default null */
@@ -763,6 +926,31 @@ export interface components {
              *     not shown, since the employer's board is trusted.
              */
             skipped: number;
+        };
+        FieldValue: {
+            field: string;
+            /** @description A string for text fields, a list for lists (`majors`). */
+            value: unknown;
+        };
+        /**
+         * @description Which resume filled the profile automatically, for the "check what we
+         *     read" banner.
+         */
+        FilledFrom: {
+            /** Format: date-time */
+            filled_at: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description The parser's changes on that resume still waiting to be checked.
+             */
+            open_changes: number;
+            /** @description None when that resume has since been deleted. */
+            resume_id?: string | null;
+            /** @description The user dismissed the banner. */
+            reviewed: boolean;
+            /** @description Sections left out because what was read didn't pass validation. */
+            skipped: string[];
         };
         Health: {
             database: boolean;
@@ -929,7 +1117,14 @@ export interface components {
             /** @default  */
             last_name: string;
             /** @default  */
+            middle_name: string;
+            /** @default  */
             phone: string;
+            /**
+             * @description "mobile", "home" or "work"; empty when not given.
+             * @default
+             */
+            phone_type: string;
             /** @default  */
             postal_code: string;
             /**
@@ -1030,6 +1225,8 @@ export interface components {
             educations: components["schemas"]["Education"][];
             /** @default [] */
             experiences: components["schemas"]["Experience"][];
+            /** @default null */
+            filled_from: components["schemas"]["FilledFrom"] | null;
             /** @default [] */
             links: components["schemas"]["Link"][];
             /**
@@ -1040,7 +1237,9 @@ export interface components {
              *       "first_name": "",
              *       "headline": "",
              *       "last_name": "",
+             *       "middle_name": "",
              *       "phone": "",
+             *       "phone_type": "",
              *       "postal_code": "",
              *       "region": "",
              *       "street": "",
@@ -1053,6 +1252,11 @@ export interface components {
             /** @default [] */
             skills: components["schemas"]["Skill"][];
         };
+        /**
+         * @description A part of the profile a resume can update.
+         * @enum {string}
+         */
+        ProfileSection: "personal" | "education" | "experience" | "projects" | "skills";
         Project: {
             /** @default [] */
             bullets: string[];
@@ -1066,25 +1270,181 @@ export interface components {
             skills: string[];
             /** @default null */
             start: string | null;
+            /**
+             * @description A one-line description ("Online banking platform").
+             * @default
+             */
+            summary: string;
             /** @default  */
             url: string;
         };
-        ResumeDraft: {
-            filename: string;
-            /** @description What the parser read. Nothing is saved until the sections are PUT. */
-            profile: components["schemas"]["Profile"];
-            resume_id: string;
-            /** @description Lines it couldn't place, for the user to copy where they belong. */
-            unsorted: string[];
+        ResumeContent: {
+            /**
+             * @description What the parser changed and the user hasn't checked yet.
+             * @default []
+             */
+            changes: components["schemas"]["Change"][];
+            /** @default [] */
+            educations: components["schemas"]["ResumeEducation"][];
+            /** @default [] */
+            experiences: components["schemas"]["ResumeExperience"][];
+            /**
+             * @default {
+             *       "email": "",
+             *       "links": [],
+             *       "location": "",
+             *       "name": "",
+             *       "phone": "",
+             *       "subtitle": "",
+             *       "tags": []
+             *     }
+             */
+            header: components["schemas"]["ResumeHeader"];
+            /** @default [] */
+            projects: components["schemas"]["Project"][];
+            /**
+             * @description The order of the sections on this resume.
+             * @default []
+             */
+            sections: components["schemas"]["SectionKind"][];
+            /** @default [] */
+            skills: components["schemas"]["Skill"][];
+            /** @default  */
+            summary: string;
+            /**
+             * @description Text the parser couldn't place, for the user to move or dismiss.
+             * @default []
+             */
+            unplaced: string[];
+        };
+        /**
+         * @description One "X in Y" row of an education entry. `degree` is what it is
+         *     ("Bachelor of Science", "B.S." as the resume wrote it, "Minor",
+         *     "Concentration") and `field` what it's in. Both are free text.
+         */
+        ResumeDegree: {
+            /** @default  */
+            degree: string;
+            /** @default  */
+            field: string;
+        };
+        ResumeDetail: {
+            content: components["schemas"]["ResumeContent"];
+            info: components["schemas"]["ResumeInfo"];
+        };
+        ResumeEducation: {
+            /**
+             * @description One line, like "Dean's List" or "Magna cum laude".
+             * @default
+             */
+            achievement: string;
+            /**
+             * @description Honors, activities and anything else under the entry.
+             * @default []
+             */
+            bullets: string[];
+            /** @default [] */
+            coursework: string[];
+            /**
+             * @description "X in Y" rows: "Bachelor of Science" in "Computer Science", "Minor"
+             *     in "Business", "Major" in "Mathematics" for a double major.
+             * @default []
+             */
+            degrees: components["schemas"]["ResumeDegree"][];
+            /** @default null */
+            end: string | null;
+            /** @default  */
+            gpa: string;
+            /** @default  */
+            location: string;
+            /** @default  */
+            school: string;
+            /** @default null */
+            start: string | null;
+        };
+        ResumeExperience: {
+            /** @default [] */
+            bullets: string[];
+            /** @default  */
+            company: string;
+            /** @default  */
+            employment_type: string;
+            /**
+             * @description None with a start date means "Present".
+             * @default null
+             */
+            end: string | null;
+            /** @default  */
+            location: string;
+            /** @default null */
+            start: string | null;
+            /**
+             * @description A line about the role or the team, above the bullets.
+             * @default
+             */
+            summary: string;
+            /** @default  */
+            title: string;
+        };
+        ResumeHeader: {
+            /** @default  */
+            email: string;
+            /** @default [] */
+            links: components["schemas"]["ResumeLink"][];
+            /**
+             * @description "City, ST", or whatever the resume says.
+             * @default
+             */
+            location: string;
+            /** @default  */
+            name: string;
+            /** @default  */
+            phone: string;
+            /**
+             * @description A line under the name ("QA engineer").
+             * @default
+             */
+            subtitle: string;
+            /** @default [] */
+            tags: string[];
         };
         ResumeInfo: {
             content_type: string;
             filename: string;
             id: string;
+            /** @description The resume used by default. Exactly one when there are any. */
+            is_primary: boolean;
+            /** @description Shown in the list; starts as the file name without its extension. */
+            name: string;
             /** Format: int64 */
             size_bytes: number;
+            target_title: string;
+            /** Format: date-time */
+            updated_at: string;
             /** Format: date-time */
             uploaded_at: string;
+        };
+        /**
+         * @description A link as the resume shows it: a label ("GitHub", "portfolio") and its
+         *     address.
+         */
+        ResumeLink: {
+            /** @default  */
+            label: string;
+            /** @default  */
+            url: string;
+        };
+        /** @description Changes to a resume's details; `None` leaves a field as it is. */
+        ResumeUpdate: {
+            /** @default null */
+            name: string | null;
+            /**
+             * @description `true` makes this the primary resume (and the old one not).
+             * @default null
+             */
+            primary: boolean | null;
+            /** @default null */
+            target_title: string | null;
         };
         ResumeUpload: {
             /**
@@ -1092,6 +1452,15 @@ export interface components {
              * @description A PDF or DOCX, at most 5 MB.
              */
             file: string;
+        };
+        ResumeUploaded: {
+            name: string;
+            /**
+             * @description The upload filled an empty profile automatically (the first resume).
+             *     When false the profile is unchanged; offer "Update profile".
+             */
+            profile_filled: boolean;
+            resume_id: string;
         };
         Salary: {
             currency: string;
@@ -1109,6 +1478,15 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
         };
+        /** @description A section that wasn't updated, and why. */
+        SectionFailure: {
+            /** @description The field on the resume to fix (`header.email`), when known. */
+            field?: string | null;
+            message: string;
+            section: components["schemas"]["ProfileSection"];
+        };
+        /** @enum {string} */
+        SectionKind: "education" | "experience" | "projects" | "skills";
         /** @enum {string} */
         Seniority: "intern" | "entry" | "mid" | "senior" | "staff_plus";
         Skill: {
@@ -1142,6 +1520,13 @@ export interface components {
              * @description Companies not checked yet.
              */
             pending: number;
+        };
+        /** @enum {string} */
+        SuggestKind: "location" | "school" | "company" | "title";
+        Suggestion: {
+            /** @description A second line, like a school's "Clemson, SC". */
+            detail?: string | null;
+            value: string;
         };
         /** @description The work authorization questions, shared with `application_answers`. */
         WorkAuthorization: {
@@ -1862,6 +2247,23 @@ export interface operations {
             };
         };
     };
+    fill_reviewed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     put_links: {
         parameters: {
             query?: never;
@@ -1973,7 +2375,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResumeDraft"];
+                    "application/json": components["schemas"]["ResumeUploaded"];
                 };
             };
             400: {
@@ -2011,6 +2413,177 @@ export interface operations {
             };
         };
     };
+    get_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeUpdate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeInfo"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    apply_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    put_resume_content: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeContent"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeDetail"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     resume_file: {
         parameters: {
             query?: never;
@@ -2028,6 +2601,35 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": unknown;
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reparse_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeDetail"];
                 };
             };
             404: {
@@ -2062,6 +2664,41 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_suggestions: {
+        parameters: {
+            query?: {
+                /** @description What's typed so far; empty gives the most common entries. */
+                q?: string;
+                /** @description How many to return (1 to 20, default 8). */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Which list */
+                kind: components["schemas"]["SuggestKind"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Suggestion"][];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

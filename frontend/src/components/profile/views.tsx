@@ -1,4 +1,4 @@
-import { ExternalLink, Mail, MapPin, Phone } from "lucide-react";
+import { ExternalLink, Globe, Link2, Mail, MapPin, Phone } from "lucide-react";
 import type { Answers, Education, Experience, Personal, ProfileLink, Project, Skill } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { formatRange } from "./fields";
@@ -27,8 +27,15 @@ function Chip({ icon: Icon, children }: { icon: React.ComponentType<{ className?
   );
 }
 
+const LINK_LABEL: Record<ProfileLink["kind"], string> = {
+  linkedin: "LinkedIn",
+  github: "GitHub",
+  portfolio: "Portfolio",
+  other: "Link",
+};
+
 export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }) {
-  const name = [p.first_name, p.last_name].filter(Boolean).join(" ");
+  const name = [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" ");
   const address = [p.street, p.city, [p.region, p.postal_code].filter(Boolean).join(" "), p.country]
     .filter(Boolean)
     .join(", ");
@@ -42,10 +49,25 @@ export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }
       <div className="flex flex-wrap gap-2">
         {address && <Chip icon={MapPin}>{address}</Chip>}
         {p.email && <Chip icon={Mail}>{p.email}</Chip>}
-        {p.phone && <Chip icon={Phone}>{p.phone}</Chip>}
+        {p.phone && (
+          <Chip icon={Phone}>
+            {p.phone}
+            {p.phone_type && <span className="text-muted-foreground"> · {p.phone_type}</span>}
+          </Chip>
+        )}
         {links.map((l) => (
-          <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="max-w-full">
-            <Chip icon={ExternalLink}>{l.url.replace(/^https?:\/\/(www\.)?/, "")}</Chip>
+          <a
+            key={l.url}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="max-w-full rounded-full focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none"
+            aria-label={`${LINK_LABEL[l.kind]}: ${l.url}`}
+          >
+            <Chip icon={l.kind === "portfolio" ? Globe : l.kind === "other" ? ExternalLink : Link2}>
+              <span className="font-medium">{LINK_LABEL[l.kind]}</span>{" "}
+              <span className="text-muted-foreground">{l.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</span>
+            </Chip>
           </a>
         ))}
       </div>
@@ -55,13 +77,28 @@ export function PersonalView({ p, links }: { p: Personal; links: ProfileLink[] }
 }
 
 function Timeline({ children }: { children: React.ReactNode }) {
-  return <ol className="space-y-5 border-l-2 border-primary/20 pl-5">{children}</ol>;
+  return <ol>{children}</ol>;
 }
 
+/**
+ * One entry on the timeline: a ring at the date, and a line from it down to
+ * the next entry's ring. The line runs through the rings' centers (both are
+ * centered 6px from the left) and stops 2px short of each ring, so it never
+ * pokes through; the last entry's fades out below it.
+ */
 function TimelineItem({ when, children }: { when: string; children: React.ReactNode }) {
   return (
-    <li className="relative space-y-1">
-      <span className="absolute top-1 -left-[1.6rem] size-3 rounded-full border-2 border-primary bg-background" />
+    // The gap to the next entry is this item's own bottom padding, so the
+    // line can end just above the next ring: that ring's top is 4px into the
+    // next item, and the line stops 2px short of it.
+    <li className="group/item relative space-y-1 pb-6 pl-7 last:pb-0">
+      {/* m-0: `space-y-1` would give these a bottom margin and cut the line short. */}
+      <span aria-hidden className="absolute top-1 left-0 m-0 size-3 rounded-full border-2 border-primary bg-background" />
+      <span
+        aria-hidden
+        // The last entry's line runs down beside it and fades out.
+        className="absolute top-4.5 -bottom-0.5 left-1.25 m-0 w-0.5 rounded-full bg-primary/20 group-last/item:bottom-0 group-last/item:bg-transparent group-last/item:bg-linear-to-b group-last/item:from-primary/20 group-last/item:to-transparent"
+      />
       {when && <p className="text-xs text-muted-foreground">{when}</p>}
       {children}
     </li>
@@ -75,7 +112,11 @@ export function EducationView({ items }: { items: Education[] }) {
       {items.map((e, i) => (
         <TimelineItem key={i} when={formatRange(e.start, e.end, false)}>
           <p className="font-semibold">{e.school}</p>
-          <p className="text-sm">{[e.degree, e.field_of_study].filter(Boolean).join(" in ")}</p>
+          <p className="text-sm">
+            {[[e.degree, e.field_of_study].filter(Boolean).join(" in "), e.minor && `Minor in ${e.minor}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
           <p className="text-sm text-muted-foreground">
             {[e.gpa && `GPA ${e.gpa}`, e.location].filter(Boolean).join(" · ")}
           </p>
@@ -93,9 +134,12 @@ export function ExperienceView({ items }: { items: Experience[] }) {
       {items.map((e, i) => (
         <TimelineItem key={i} when={formatRange(e.start, e.end)}>
           <p className="font-semibold">{e.company || e.title}</p>
-          <p className="text-sm">
-            {[e.company ? e.title : "", e.employment_type, e.location].filter(Boolean).join(" · ")}
-          </p>
+          {e.company && e.title && <p className="text-sm">{e.title}</p>}
+          {(e.employment_type || e.location) && (
+            <p className="text-sm text-muted-foreground">
+              {[e.employment_type, e.location].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <Bullets items={e.bullets} />
         </TimelineItem>
       ))}
@@ -118,7 +162,8 @@ export function ProjectView({ items }: { items: Project[] }) {
               p.name
             )}
           </p>
-          {p.role && <p className="text-sm">{p.role}</p>}
+          {p.summary && <p className="text-sm">{p.summary}</p>}
+          {p.role && <p className="text-sm text-muted-foreground">{p.role}</p>}
           {p.skills.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {p.skills.map((s) => (
