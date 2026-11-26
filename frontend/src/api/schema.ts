@@ -604,7 +604,8 @@ export interface paths {
         /**
          * Suggestions for a field as the user types: cities ("City, ST"),
          *     schools, companies or job titles, best first. Values already in the
-         *     user's profile that match come first.
+         *     user's profile that match come first. `search` is the job feed's box:
+         *     titles (and related ones), then companies with their open-job counts.
          */
         get: operations["get_suggestions"];
         put?: never;
@@ -1522,10 +1523,14 @@ export interface components {
             pending: number;
         };
         /** @enum {string} */
-        SuggestKind: "location" | "school" | "company" | "title";
+        SuggestKind: "location" | "school" | "company" | "title" | "search";
         Suggestion: {
-            /** @description A second line, like a school's "Clemson, SC". */
+            /**
+             * @description A second line, like a school's "Clemson, SC" or a company's "42 open
+             *     jobs".
+             */
             detail?: string | null;
+            kind?: components["schemas"]["SuggestKind"] | null;
             value: string;
         };
         /** @description The work authorization questions, shared with `application_answers`. */

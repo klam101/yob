@@ -1,7 +1,8 @@
 "use client";
 
 import { Popover as PopoverPrimitive } from "radix-ui";
-import { useEffect, useId, useRef, useState } from "react";
+import { Building2, Search } from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { api, type SuggestKind } from "@/api/client";
 import { cn } from "cn";
 
@@ -78,7 +79,10 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 type InputProps = Omit<React.ComponentProps<"input">, "value" | "onChange" | "list" | "ref">;
 
-type Item = { value: string; detail?: string };
+type Item = { value: string; detail?: string; kind?: SuggestKind };
+
+/** Headings for menus that mix kinds (the feed's search box). */
+const GROUP: Partial<Record<SuggestKind, string>> = { title: "Job titles", company: "Companies" };
 
 /**
  * Suggestions from the API (`/suggest/{kind}`) for what's typed, fetched a
@@ -96,7 +100,10 @@ function useRemote(kind: SuggestKind | undefined, query: string, enabled: boolea
         .GET("/suggest/{kind}", { params: { path: { kind }, query: { q, limit } }, signal: ctl.signal })
         .catch(() => ({ data: undefined }));
       if (!ctl.signal.aborted && data) {
-        setState({ key, items: data.map((d) => ({ value: d.value, detail: d.detail ?? undefined })) });
+        setState({
+          key,
+          items: data.map((d) => ({ value: d.value, detail: d.detail ?? undefined, kind: d.kind ?? undefined })),
+        });
       }
     }, 150);
     return () => {
@@ -124,6 +131,7 @@ export function SuggestInput({
   source,
   onPick,
   aliases,
+  showOnEmpty = true,
   limit = 8,
   onKeyDown,
   onFocus,
@@ -143,18 +151,21 @@ export function SuggestInput({
   onPick?: (item: Item) => void;
   /** How many options show at once. */
   limit?: number;
+  /** False: no menu until something is typed (a search box). */
+  showOnEmpty?: boolean;
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const remote = useRemote(source, value, open, limit);
+  const enabled = open && (showOnEmpty || value.trim() !== "");
+  const remote = useRemote(source, value, enabled, limit);
   const items: Item[] = source
     ? remote.items
     : rankSuggestions(options ?? [], value, limit, aliases).map((v) => ({ value: v }));
   // Nothing to suggest, or the text already is the only match.
   const useful = items.length > 0 && !(items.length === 1 && items[0].value === value.trim());
-  const shown = open && useful;
+  const shown = enabled && useful;
 
   function pick(item: Item) {
     if (onPick) onPick(item);
@@ -239,25 +250,55 @@ export function SuggestInput({
             aria-label={props["aria-label"] ? `${props["aria-label"]} suggestions` : "Suggestions"}
             className={cn("transition-opacity", source && remote.loading && "opacity-70")}
           >
-            {items.map((o, i) => (
-              <div
-                key={`${o.value}|${o.detail ?? ""}`}
-                id={`${id}-opt-${i}`}
-                role="option"
-                aria-selected={i === active}
-                // Keep focus in the box; pick on click.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(o)}
-                onMouseMove={() => active !== i && setActive(i)}
-                className={cn(
-                  "cursor-pointer rounded-xl px-3 py-2 text-sm text-foreground/85 select-none",
-                  i === active && "bg-muted text-foreground",
-                )}
-              >
-                <Highlight text={o.value} query={value} />
-                {o.detail && <div className="text-xs text-muted-foreground">{o.detail}</div>}
-              </div>
-            ))}
+            {items.map((o, i) => {
+              // A heading where a new kind starts ("Job titles", "Companies").
+              const heading = o.kind && o.kind !== items[i - 1]?.kind ? GROUP[o.kind] : undefined;
+              const Icon = o.kind === "company" ? Building2 : o.kind ? Search : null;
+              return (
+                <Fragment key={`${o.kind ?? ""}|${o.value}|${o.detail ?? ""}`}>
+                  {heading && (
+                    <div
+                      role="presentation"
+                      className={cn(
+                        "px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground",
+                        i > 0 && "mt-1 border-t border-border/60",
+                      )}
+                    >
+                      {heading}
+                    </div>
+                  )}
+                  <div
+                    id={`${id}-opt-${i}`}
+                    role="option"
+                    aria-selected={i === active}
+                    // Keep focus in the box; pick on click.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(o)}
+                    onMouseMove={() => active !== i && setActive(i)}
+                    className={cn(
+                      "cursor-pointer rounded-xl px-3 py-2 text-sm text-foreground/85 select-none",
+                      Icon && "flex items-center gap-2.5",
+                      i === active && "bg-muted text-foreground",
+                    )}
+                  >
+                    {Icon ? (
+                      <>
+                        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">
+                          <Highlight text={o.value} query={value} />
+                        </span>
+                        {o.detail && <span className="shrink-0 text-xs text-muted-foreground">{o.detail}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <Highlight text={o.value} query={value} />
+                        {o.detail && <div className="text-xs text-muted-foreground">{o.detail}</div>}
+                      </>
+                    )}
+                  </div>
+                </Fragment>
+              );
+            })}
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

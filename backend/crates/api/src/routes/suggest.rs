@@ -30,7 +30,8 @@ pub struct SuggestQuery {
 
 /// Suggestions for a field as the user types: cities ("City, ST"),
 /// schools, companies or job titles, best first. Values already in the
-/// user's profile that match come first.
+/// user's profile that match come first. `search` is the job feed's box:
+/// titles (and related ones), then companies with their open-job counts.
 #[utoipa::path(
     get,
     path = "/suggest/{kind}",
@@ -63,6 +64,8 @@ async fn get_suggestions(
         SuggestKind::School => p.educations.iter().map(|e| e.school.clone()).collect(),
         SuggestKind::Company => p.experiences.iter().map(|x| x.company.clone()).collect(),
         SuggestKind::Title => p.experiences.iter().map(|x| x.title.clone()).collect(),
+        // The feed's search box suggests from the job data only.
+        SuggestKind::Search => Vec::new(),
     };
     own.retain(|v| !v.trim().is_empty());
     let out = suggest::suggest(&state.db, kind, &q, query.limit.unwrap_or(8), &own).await?;

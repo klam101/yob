@@ -121,7 +121,9 @@ Goal: virtually every US or remote job from credible sources. No LinkedIn or Ind
 - [x] Type-ahead for cities, schools, companies and job titles (`/suggest/{kind}`): Profile, resume page, preferences and the feed's location filter; your own past entries first
 - [ ] Type-ahead for skills: a curated vocabulary (seeded from O*NET Technology Skills, CC BY 4.0, credited in the README), searched on the server; also normalizes spelling ("reactjs" -> "React")
 - [ ] Industry suggestions on the new menu (preferences' `INDUSTRY_SUGGESTIONS`)
-- [ ] Feed search box suggests titles and companies while typing
+- [x] Feed search box suggests job titles and companies while typing (keyword search; a picked company becomes a Company filter); the location box suggests cities; nothing shows until you type
+- [x] Related titles in the feed's suggestions from a rule-based table ("coder" -> Software Developer); replace or extend with embeddings in Stage 5
+- [ ] Related titles in the search results too (a keyword search for "coder" also finds Software Developer jobs), with the filters work
 - [x] State (US list while the country is the US; stores the code) and country (every country, found by code or other name: "uk", "usa") type-ahead on Personal
 - [x] Picking a school fills an empty education location with its city; a title with "Intern" makes an unset job type Internship
 - [ ] ZIP code fills city and state (local list from GeoNames US postal codes, CC BY 4.0; needs the one-time download approved)
